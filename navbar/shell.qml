@@ -60,6 +60,10 @@ ShellRoot {
     // ---------- State ----------
     property int activeWs: 1
     property var existingWs: [1, 2, 3, 4, 5]
+    // +1 = user navigated to a higher-numbered workspace (rightward along
+    // the bar), -1 = lower-numbered (leftward), 0 = no recent travel. The
+    // active Workspace cell reads this to bias its kanji's entry offset.
+    property int lastDirection: 0
 
     property int cpuVal: 0
     property int memVal: 0
@@ -218,7 +222,13 @@ ShellRoot {
             onStreamFinished: {
                 const p = this.text.split("|");
                 if (p.length === 2) {
-                    root.activeWs = parseInt(p[0]) || 1;
+                    const next = parseInt(p[0]) || 1;
+                    // Set direction first; the Workspace delegates read it
+                    // inside their onActiveChanged handlers, which fire as
+                    // soon as we write activeWs below.
+                    if (next > root.activeWs) root.lastDirection = 1;
+                    else if (next < root.activeWs) root.lastDirection = -1;
+                    root.activeWs = next;
                     const have = p[1].split(",").map(s => parseInt(s)).filter(n => !isNaN(n));
                     root.existingWs = [...new Set([...have, 1, 2, 3, 4, 5])].sort((a,b) => a-b).slice(0, 9);
                 }
@@ -817,6 +827,7 @@ ShellRoot {
 
     // Workspace cell.
     component Workspace: Item {
+        id: wsCell
         property int wsId: 0
         property string label: ""
         property bool active: false
@@ -827,11 +838,35 @@ ShellRoot {
         Layout.preferredWidth: 20
         Layout.preferredHeight: root.barHeight
 
+        // On becoming active, snap the kanji 2px in the direction of travel
+        // (carousel-style: going right enters from the right, eases left),
+        // then ease back to centre. The snap bypasses the Behavior by going
+        // through an explicit NumberAnimation.
+        onActiveChanged: {
+            if (active && root.lastDirection !== 0) {
+                slideHome.stop();
+                kanji.slideX = root.lastDirection * 2;
+                slideHome.start();
+            }
+        }
+
+        NumberAnimation {
+            id: slideHome
+            target: kanji
+            property: "slideX"
+            to: 0
+            duration: 180
+            easing.type: Easing.OutCubic
+        }
+
         Bloom { id: bloom }
 
         Text {
             id: kanji
-            anchors.centerIn: parent
+            property real slideX: 0
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.horizontalCenterOffset: slideX
+            anchors.verticalCenter: parent.verticalCenter
             text: label
             color: active ? root.seal : (present ? root.ink : root.sumi)
             opacity: active ? 1.0 : (present ? 0.75 : 0.35)
