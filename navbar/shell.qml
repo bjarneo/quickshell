@@ -243,15 +243,29 @@ ShellRoot {
         onTriggered: { btProbe.running = false; btProbe.running = true; } }
 
     // ---------- Audio status ----------
+    // Icon ramps with volume: muted → icoMute, 0 → off, <50 → low, ≥50 → high.
     Process {
         id: audioProbe
         running: false
         command: ["bash", "-lc",
-            "m=$(pamixer --get-mute 2>/dev/null || echo false); "
-            + "if [ \"$m\" = true ]; then echo mute; else echo on; fi"]
+            "v=$(pamixer --get-volume 2>/dev/null || echo 0); "
+            + "m=$(pamixer --get-mute 2>/dev/null || echo false); "
+            + "printf '%s|%s' \"$v\" \"$m\""]
         stdout: StdioCollector {
             onStreamFinished: {
-                root.audioIcon = this.text.trim() === "mute" ? root.icoMute : root.icoVol3;
+                const p = this.text.split("|");
+                if (p.length !== 2) return;
+                const v = parseInt(p[0]);
+                const m = p[1].trim() === "true";
+                if (m) {
+                    root.audioIcon = root.icoMute;
+                } else if (isNaN(v) || v <= 0) {
+                    root.audioIcon = root.icoVol1;
+                } else if (v < 50) {
+                    root.audioIcon = root.icoVol2;
+                } else {
+                    root.audioIcon = root.icoVol3;
+                }
             }
         }
     }
