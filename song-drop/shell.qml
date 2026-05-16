@@ -29,6 +29,14 @@ ShellRoot {
     property string trackArtist: ""
     property string lastShownKey: ""
 
+    // Cascade scalar for the title glyphs: each char N is fully visible once
+    // titleCascade > N (with a 1-unit fade window). One unit = 8ms of wall
+    // time during the reveal animation, giving an 8ms-per-glyph "typed in"
+    // stagger. metaOpacity fades the surrounding icon/separator/artist in
+    // parallel without dragging the title cascade along with it.
+    property real titleCascade: 0
+    property real metaOpacity: 0
+
     function parseColors(text) {
         const re = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]+)"/;
         const lines = text.split("\n");
@@ -60,6 +68,12 @@ ShellRoot {
         const key = player.trackTitle + "" + (player.trackArtist || "");
         if (key === root.lastShownKey) return;
         root.lastShownKey = key;
+        // Reset cascade BEFORE swapping the title so the Repeater's freshly
+        // built char delegates evaluate opacity against cascade=0 (otherwise
+        // they'd briefly inherit a fully-revealed state from the prior track
+        // before the dropAnim init ScriptAction runs).
+        root.titleCascade = 0;
+        root.metaOpacity = 0;
         root.trackTitle = player.trackTitle;
         root.trackArtist = player.trackArtist || "";
         dropAnim.restart();
@@ -105,6 +119,24 @@ ShellRoot {
             readonly property real boxY: root.barHeight + 14
             readonly property real centerX: width / 2
             readonly property real impactY: boxY + boxHeight / 2 - 8
+
+            // ---- Pre-roll ----
+            // Subliminal cue: 80ms before the drop falls, the bar's centre
+            // brightens by ~4% (ink overlay at 0.04 opacity). Painted on the
+            // overlay layer so it stacks on top of the navbar without the two
+            // shells needing to talk to each other. Pill-shaped + antialiased
+            // so the edges don't read as a hard rectangle.
+            Rectangle {
+                id: preRoll
+                width: 240
+                height: root.barHeight
+                radius: root.barHeight / 2
+                x: stage.centerX - width / 2
+                y: 0
+                color: root.ink
+                opacity: 0
+                antialiasing: true
+            }
 
             // ---- Falling drop ----
             // Stretch is animated: width = size / sqrt(stretch), height = size * stretch.
@@ -217,26 +249,54 @@ ShellRoot {
                         font.family: root.mono
                         font.pixelSize: 13
                         color: root.textOnAccent
+                        opacity: root.metaOpacity
                         anchors.verticalCenter: parent.verticalCenter
                     }
-                    Text {
-                        id: titleText
-                        text: root.trackTitle
-                        color: root.textOnAccent
-                        font.family: root.mono
-                        font.pixelSize: 12
-                        font.letterSpacing: 1
-                        font.weight: Font.Medium
+                    // Title chars cascade: per-glyph Text in a Row so each
+                    // can carry its own opacity. The Row is wrapped in a
+                    // clipped Item to retain the original elide-style cutoff
+                    // when titles overrun the box. Width budget mirrors the
+                    // previous single-Text formula.
+                    Item {
+                        id: titleClip
                         anchors.verticalCenter: parent.verticalCenter
-                        elide: Text.ElideRight
-                        width: Math.min(implicitWidth,
+                        height: 16
+                        width: Math.min(titleRow.implicitWidth,
                             stage.boxWidth - 90 - (artistText.visible ? artistText.width + 18 : 0))
+                        clip: true
+
+                        Row {
+                            id: titleRow
+                            spacing: 0
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            Repeater {
+                                id: titleChars
+                                model: root.trackTitle.split("")
+                                delegate: Text {
+                                    required property string modelData
+                                    required property int index
+                                    // U+00A0 keeps Row width math stable;
+                                    // a literal " " can collapse to zero
+                                    // width depending on the font.
+                                    text: modelData === " " ? " " : modelData
+                                    color: root.textOnAccent
+                                    font.family: root.mono
+                                    font.pixelSize: 12
+                                    font.letterSpacing: 1
+                                    font.weight: Font.Medium
+                                    opacity: Math.max(0, Math.min(1, root.titleCascade - index))
+                                }
+                            }
+                        }
                     }
                     Rectangle {
                         visible: root.trackArtist.length > 0
                         width: 1
                         height: 14
                         color: Qt.rgba(root.textOnAccent.r, root.textOnAccent.g, root.textOnAccent.b, 0.45)
+                        opacity: root.metaOpacity
                         anchors.verticalCenter: parent.verticalCenter
                     }
                     Text {
@@ -248,6 +308,7 @@ ShellRoot {
                         font.pixelSize: 11
                         font.letterSpacing: 1
                         font.italic: true
+                        opacity: root.metaOpacity
                         anchors.verticalCenter: parent.verticalCenter
                         elide: Text.ElideRight
                         width: Math.min(implicitWidth, stage.boxWidth / 2 - 20)
@@ -263,20 +324,46 @@ ShellRoot {
                     drop.cy = root.barHeight - 4;
                     drop.size = 14;
                     drop.stretch = 1.0;
-                    drop.opacity = 1;
+                    drop.opacity = 0;
                     tail.cy = root.barHeight - 4;
                     tail.opacity = 0;
                     box.scale = 0;
                     box.opacity = 0;
                     labelRow.opacity = 0;
+                    preRoll.opacity = 0;
+                    root.titleCascade = 0;
+                    root.metaOpacity = 0;
                     splash0.travel = 0; splash0.opacity = 0;
                     splash1.travel = 0; splash1.opacity = 0;
                     splash2.travel = 0; splash2.opacity = 0;
                     splash3.travel = 0; splash3.opacity = 0;
                 }}
 
+                // 0) Pre-roll — 80ms of bar-centre brightening before the
+                //    drop appears. 60ms ramp up to 0.04, 20ms hold, then the
+                //    fall begins and preRoll decays in parallel with it.
+                SequentialAnimation {
+                    NumberAnimation {
+                        target: preRoll; property: "opacity"
+                        from: 0; to: 0.04
+                        duration: 60
+                        easing.type: Easing.OutQuad
+                    }
+                    PauseAnimation { duration: 20 }
+                }
+
                 // 1) Fall + teardrop stretch (drop and tail)
                 ParallelAnimation {
+                    // Drop becomes visible exactly when the fall starts —
+                    // the pre-roll is meant to feel like it precedes the
+                    // event, not accompany it.
+                    ScriptAction { script: drop.opacity = 1 }
+                    NumberAnimation {
+                        target: preRoll; property: "opacity"
+                        to: 0
+                        duration: 240
+                        easing.type: Easing.InQuad
+                    }
                     NumberAnimation {
                         target: drop; property: "cy"
                         from: root.barHeight - 4
@@ -358,8 +445,26 @@ ShellRoot {
                     }
                 }
 
-                // 4) Reveal label
-                NumberAnimation { target: labelRow; property: "opacity"; from: 0; to: 1; duration: 220 }
+                // 4) Reveal label. labelRow snaps to fully opaque so the
+                //    per-glyph cascade and metaOpacity ramps drive the
+                //    perceived reveal — keeping labelRow as the master fade
+                //    would multiply against the cascade and smear it into a
+                //    wave instead of a "typed in" stagger.
+                ScriptAction { script: labelRow.opacity = 1 }
+                ParallelAnimation {
+                    NumberAnimation {
+                        target: root; property: "titleCascade"
+                        from: 0
+                        // +2 so the last char's 1-unit fade window completes.
+                        to: root.trackTitle.length + 2
+                        duration: (root.trackTitle.length + 2) * 8
+                    }
+                    NumberAnimation {
+                        target: root; property: "metaOpacity"
+                        from: 0; to: 1
+                        duration: 220
+                    }
+                }
 
                 // 5) Hold for 5 seconds
                 PauseAnimation { duration: 5000 }
