@@ -1129,7 +1129,7 @@ ShellRoot {
                     interval: 320
                     onTriggered: {
                         const p = clockItem.mapToItem(null, clockItem.width / 2, clockItem.height / 2);
-                        root.showTooltip("Calendar", p.x, p.y);
+                        root.showTooltip("Open calendar", p.x, p.y);
                     }
                 }
 
@@ -1139,10 +1139,10 @@ ShellRoot {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onEntered: { clockBloom.fire(mouseX, mouseY); clockTipDelay.restart(); }
-                    onExited:  { clockTipDelay.stop(); root.hideTooltip("Calendar"); }
+                    onExited:  { clockTipDelay.stop(); root.hideTooltip("Open calendar"); }
                     onClicked: {
                         clockTipDelay.stop();
-                        root.hideTooltip("Calendar");
+                        root.hideTooltip("Open calendar");
                         if (root.calendarVisible) root.calendarVisible = false;
                         else root.openCalendar();
                     }
@@ -1163,7 +1163,7 @@ ShellRoot {
 
                 Module {
                     glyph: root.icoOmarchy
-                    tooltip: "Menu · right: terminal"
+                    tooltip: "Open menu  (right-click: terminal)"
                     color: root.seal
                     fontFamily: "omarchy"
                     fontSize: 14
@@ -1200,10 +1200,10 @@ ShellRoot {
                     glyph: root.weatherUnavailable ? "?"
                            : (root.weatherLoaded ? root.weatherIcon : "·")
                     tooltip: root.weatherUnavailable
-                             ? "Weather · offline"
+                             ? "Weather unavailable"
                              : (root.weatherLoaded
-                                ? "Weather · " + root.weatherTempC + "°C"
-                                : "Weather · loading")
+                                ? "Weather: " + root.weatherTempC + "°C  (right-click: refresh)"
+                                : "Weather loading…")
                     color: root.weatherUnavailable ? root.sumi : root.ink
                     fontSize: 13
                     onActivated: {
@@ -1218,7 +1218,7 @@ ShellRoot {
                     // display popup (warmth / brightness / gamma / monitor
                     // tweaks); right-click jumps straight to a reset.
                     glyph: root.icoDisplay
-                    tooltip: "Display · right: reset"
+                    tooltip: "Display settings  (right-click: reset to defaults)"
                     color: (root.warmthK < 6500 || root.gammaPct !== 100 || root.brightnessPct < 100)
                            ? root.seal : root.ink
                     onActivated: {
@@ -1232,7 +1232,7 @@ ShellRoot {
                     // Nerd Font mdi-camera (U+F0100). Left-click browses
                     // recent shots; right-click triggers a fresh capture.
                     glyph: root.icoCamera
-                    tooltip: "Screenshots · right: capture"
+                    tooltip: "Browse screenshots  (right-click: take new screenshot)"
                     onActivated: {
                         if (root.screenshotsVisible) root.screenshotsVisible = false;
                         else root.openScreenshots();
@@ -1248,21 +1248,21 @@ ShellRoot {
                 // bar-position chevron.
                 Module {
                     glyph: "󰍛"
-                    tooltip: "CPU · " + Math.round(root.cpuVal) + "%"
+                    tooltip: "CPU usage: " + Math.round(root.cpuVal) + "%  (click to open btop)"
                     color: root.cpuVal > 80 ? root.seal : root.ink
                     onActivated: root.run("omarchy-launch-or-focus-tui btop")
                 }
 
                 Module {
                     glyph: root.btIcon
-                    tooltip: "Bluetooth"
+                    tooltip: "Bluetooth devices"
                     onActivated: root.run("omarchy-launch-bluetooth")
                 }
 
                 Module {
                     id: netMod
                     glyph: root.netIcon
-                    tooltip: "Network"
+                    tooltip: "Wi-Fi networks"
                     onActivated: root.run("omarchy-launch-wifi")
 
                     // Network-burst dot: traverses the wifi glyph's outermost
@@ -1313,21 +1313,21 @@ ShellRoot {
 
                 Module {
                     glyph: root.audioIcon
-                    tooltip: "Audio · right: mute"
+                    tooltip: "Audio settings  (right-click: toggle mute)"
                     onActivated: root.run("omarchy-launch-audio")
                     onRightActivated: root.run("pamixer -t")
                 }
 
                 Module {
                     glyph: root.batteryIcon()
-                    tooltip: "Battery · " + root.batVal + "%"
+                    tooltip: "Battery: " + root.batVal + "%  (click for power menu)"
                     color: root.batVal <= 10 ? root.seal : root.batVal <= 20 ? root.indigo : root.ink
                     onActivated: root.run("omarchy-menu power")
                 }
 
                 Module {
                     glyph: root.edgeArrow()
-                    tooltip: "Bar edge · " + root.barEdge
+                    tooltip: "Move bar (currently " + root.barEdge + ")"
                     color: root.sumi
                     fontSize: 12
                     onActivated: root.cycleBarEdge()
