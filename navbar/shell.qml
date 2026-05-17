@@ -858,36 +858,18 @@ ShellRoot {
         onTriggered: root.burstArmed = true }
 
     // ---------- Idle dim ----------
-    // Polls hyprctl cursorpos at ~3Hz. If the cursor hasn't moved for
-    // idleThresholdMs the bar eases to 0.75 opacity over 4s; the next
-    // movement snaps it back over 80ms. Asymmetry is the whole point —
-    // slow fade reads ambient, fast restore reads responsive.
-    property string lastCursorPos: ""
-    property real lastMoveMs: Date.now()
-    property bool isIdle: false
-    readonly property int idleThresholdMs: 30000
-
-    Process {
-        id: cursorProbe
-        running: false
-        // sh -c (no login profile) — keeps the 3Hz poll cheap.
-        command: ["sh", "-c", "hyprctl cursorpos 2>/dev/null"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const cur = this.text.trim();
-                if (!cur) return;
-                if (cur !== root.lastCursorPos) {
-                    root.lastCursorPos = cur;
-                    root.lastMoveMs = Date.now();
-                    if (root.isIdle) root.isIdle = false;
-                } else if (!root.isIdle && Date.now() - root.lastMoveMs > root.idleThresholdMs) {
-                    root.isIdle = true;
-                }
-            }
-        }
+    // Wayland ext-idle-notify-v1 via Quickshell. The compositor counts
+    // pointer AND keyboard activity, so typing keeps the bar bright even
+    // when the mouse hasn't moved. Once idle the rectangle eases to 0.7
+    // opacity over 6s; the next input snaps it back over 60ms — slow
+    // fade reads ambient, fast restore reads responsive.
+    IdleMonitor {
+        id: idleMonitor
+        enabled: true
+        timeout: 60
+        respectInhibitors: true
     }
-    Timer { interval: 300; running: true; repeat: true; triggeredOnStart: true
-        onTriggered: { cursorProbe.running = false; cursorProbe.running = true; } }
+    readonly property bool isIdle: idleMonitor.isIdle
 
     // ---------- Bluetooth status ----------
     Process {
