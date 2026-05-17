@@ -12,6 +12,7 @@ Personal [Quickshell](https://quickshell.outfoxxed.me) configs built for [omarch
 | [`music-wallpaper/`](./music-wallpaper) | Music-reactive wallpaper. Reads `cliamp visstream` NDJSON, paints a soft radial pulse with mids halo, bass-transient ripples, and a low-opacity EQ across the bottom. Tints to the omarchy accent. |
 | [`clipboard-ripple/`](./clipboard-ripple) | Clipboard tactile feedback. `wl-paste --watch` blooms a soft accent-tinted halo outward from the cursor while a brighter inner core pulses twice. Click-through overlay. |
 | [`battery-drip/`](./battery-drip) | Rare, high-information battery feedback. Crossings of 20% / 10% drip a teardrop down the right edge of the bar; transition to Full (or plug-in already near full) fills a battery outline with a rising sinusoidal wave. Click-through overlay. |
+| [`quickapps/`](./quickapps) | Radial quick-app launcher. Eight to ten favourite apps arranged around a single faint indigo ring with kanji counter and serif typography. Reads `~/.config/omarchy-quickapps/apps.json`; bind to a Hyprland key for a Spotlight-style launch. |
 
 Each module is a self-contained Quickshell config rooted at `shell.qml`.
 
@@ -48,6 +49,9 @@ qs -n -d -c clipboard-ripple
 
 # launch the battery drip / fill overlay
 qs -n -d -c battery-drip
+
+# launch the quickapps radial launcher (bind to a key, no daemon needed)
+qs -n -c quickapps
 ```
 
 `-c <name>` resolves to `~/.config/quickshell/<name>/shell.qml`. `-d` daemonizes, `-n` makes it idempotent.

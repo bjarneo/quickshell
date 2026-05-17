@@ -1,0 +1,12 @@
+{
+  "apps": [
+    { "name": "TERMINAL", "icon": "ghostty",             "exec": "ghostty" },
+    { "name": "BROWSER",  "icon": "chromium",            "exec": "chromium" },
+    { "name": "FILES",    "icon": "system-file-manager", "exec": "nautilus" },
+    { "name": "EDITOR",   "icon": "nvim",                "exec": "omarchy-launch-or-focus-tui nvim" },
+    { "name": "MUSIC",    "icon": "cliamp",              "exec": "omarchy-launch-or-focus-tui cliamp" },
+    { "name": "CHAT",     "icon": "discord",             "exec": "discord" },
+    { "name": "THEMING",  "icon": "aether",              "exec": "aether" },
+    { "name": "NOTES",    "icon": "obsidian",            "exec": "obsidian" }
+  ]
+}
