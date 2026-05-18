@@ -66,9 +66,10 @@ Item {
             "            continue\n" +
             "        icon = de.get('Icon', '').strip()\n" +
             "        gname = de.get('GenericName', '').strip()\n" +
+            "        term = '1' if de.get('Terminal', '').lower() == 'true' else ''\n" +
             "        def s(x):\n" +
             "            return x.replace('\\t', ' ').replace('\\n', ' ').replace('\\r', ' ')\n" +
-            "        out.append('\\t'.join([s(name), s(comment), s(keywords), s(categories), s(exe), s(icon), s(gname)]))\n" +
+            "        out.append('\\t'.join([s(name), s(comment), s(keywords), s(categories), s(exe), s(icon), s(gname), term]))\n" +
             "sys.stdout.write('\\n'.join(out))\n"]
         stdout: StdioCollector {
             onStreamFinished: {
@@ -85,7 +86,11 @@ Item {
                         category: "App",
                         icon: "󰀻",
                         exec: p[4],
-                        rawIcon: p[5]
+                        rawIcon: p[5],
+                        // Terminal=true in the .desktop entry — apps like
+                        // cliamp need a TTY to render; without one they
+                        // exit immediately when launched detached.
+                        tui: p[7] === "1" ? "omarchy-launch-tui" : ""
                     };
                 }
                 apps.length = n;
