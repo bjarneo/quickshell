@@ -74,9 +74,25 @@ Item {
             args.push("--exclude");
             args.push(excludes[i]);
         }
-        // Join tokens with `.*` for fzf-style gap matching: "img wall"
-        // -> "img.*wall" finds "img-wallpaper.png".
-        args.push(tokens.join(".*"));
+        // Three modes by what the user typed:
+        //   "mrrobot/*.txt" -> full-path glob, prefix `**/` so fd crosses
+        //                      directory boundaries (a bare `*` doesn't).
+        //   "*.png"         -> basename glob, no full-path scoping.
+        //   "img wall"      -> fzf-style regex, tokens joined by `.*`.
+        const raw = tokens.join(" ");
+        const hasSlash = raw.indexOf("/") >= 0;
+        const hasGlob = raw.indexOf("*") >= 0 || raw.indexOf("?") >= 0;
+        if (hasSlash) {
+            args.push("--glob");
+            args.push("--full-path");
+            const prefix = (raw[0] === "*" || raw[0] === "/") ? "" : "**/";
+            args.push(prefix + raw);
+        } else if (hasGlob) {
+            args.push("--glob");
+            args.push(raw);
+        } else {
+            args.push(tokens.join(".*"));
+        }
         args.push(fileSearch.homeDir);
         return args;
     }
