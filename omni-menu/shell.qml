@@ -92,6 +92,11 @@ ShellRoot {
     property string previewPath: ""
     property string previewText: ""
     property string previewMeta: ""
+    property string previewRepo: ""
+    property string previewRepoUrl: ""
+    property string previewReadme: ""
+    readonly property bool previewActive: root.fileMode || root.ghMode
+    readonly property bool previewHasContent: root.previewPath !== "" || root.previewRepoUrl !== ""
     readonly property string previewKind: {
         if (!root.previewPath) return "";
         const ext = root.fileExt(root.previewPath);
@@ -187,6 +192,9 @@ ShellRoot {
         root.previewText = "";
         root.previewMeta = "";
         root.ghItems = [];
+        root.previewRepo = "";
+        root.previewRepoUrl = "";
+        root.previewReadme = "";
         fdDebounce.stop();
         ghDebounce.stop();
     }
@@ -581,6 +589,9 @@ ShellRoot {
             ? "~" + p.substring(root.homeDir.length)
             : p;
     }
+    function openUrl(url) {
+        return "xdg-open " + JSON.stringify(url);
+    }
 
     function buildFdArgs(tokens) {
         const args = ["--type", "f", "--max-results", "200"];
@@ -614,8 +625,8 @@ ShellRoot {
                         category: dirShort,
                         icon: root.fileIcon(path),
                         path: path,
-                        exec: "xdg-open " + JSON.stringify(path),
-                        isFile: true
+                        exec: root.openUrl(path),
+                        rawCategory: true
                     };
                 }
                 root.fileItems = out;
@@ -644,15 +655,15 @@ ShellRoot {
     }
 
     // ---------- GitHub search (gh) ----------
-    // gh's auth check is the only reliable way to tell if a token is
-    // present and usable. The "Logged in" string is stable across
-    // recent gh versions and works whether keyring or env-var-backed.
+    // Shell short-circuit returns "ok" only when gh exists AND has a usable
+    // token — drives off exit codes, not stdout parsing, so it survives gh
+    // localizing or rephrasing "Logged in".
     Process {
         id: ghAuthProc
         running: false
-        command: ["sh", "-c", "command -v gh >/dev/null 2>&1 && gh auth status 2>&1 || true"]
+        command: ["sh", "-c", "command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 && echo ok || true"]
         stdout: StdioCollector {
-            onStreamFinished: { root.ghReady = this.text.indexOf("Logged in") >= 0; }
+            onStreamFinished: { root.ghReady = this.text.indexOf("ok") >= 0; }
         }
     }
 
@@ -702,13 +713,14 @@ ShellRoot {
                         category: "★ " + root.formatStars(r.stargazersCount || 0) + lang,
                         icon: "󰊤",
                         path: r.url,
-                        exec: "xdg-open " + JSON.stringify(r.url),
-                        isFile: true
+                        exec: root.openUrl(r.url),
+                        rawCategory: true
                     };
                 }
                 root.ghItems = out;
                 root.selectedIndex = Math.max(0, Math.min(root.selectedIndex,
                                                           out.length - 1));
+                root.updateGhPreview();
             }
         }
     }
@@ -732,6 +744,14 @@ ShellRoot {
             onStreamFinished: { root.previewMeta = this.text; }
         }
     }
+    Process {
+        id: readmeProc
+        running: false
+        command: ["true"]
+        stdout: StdioCollector {
+            onStreamFinished: { root.previewReadme = this.text || "NO README"; }
+        }
+    }
 
     function fileExt(path) {
         const name = root.basename(path);
@@ -741,6 +761,7 @@ ShellRoot {
     }
 
     function updatePreview() {
+        if (root.ghMode) { root.updateGhPreview(); return; }
         const it = root.fileMode ? root.filteredItems[root.selectedIndex] : null;
         const path = (it && it.path) || "";
         if (path === root.previewPath) return;
@@ -767,12 +788,31 @@ ShellRoot {
         }
     }
 
+    function updateGhPreview() {
+        const it = root.filteredItems[root.selectedIndex];
+        const url = (it && it.path) || "";
+        if (url === root.previewRepoUrl) return;
+        root.previewRepoUrl = url;
+        root.previewRepo = (it && it.title) || "";
+        root.previewReadme = "";
+        if (!url || !it.title) return;
+        root.previewReadme = "Loading…";
+        // gh api prints its 404 error body to stdout, so a naive pipe
+        // would leak `{"message":"Not Found"...}` into the preview.
+        // Capture first, only emit on exit success.
+        readmeProc.command = ["sh", "-c",
+            "out=$(gh api repos/\"$1\"/readme -H 'Accept: application/vnd.github.raw' 2>/dev/null) && printf '%s' \"$out\" | head -c 8192 || true",
+            "sh", it.title];
+        readmeProc.running = false;
+        readmeProc.running = true;
+    }
+
     onQueryChanged: {
         if (root.fileMode) fdDebounce.restart();
         if (root.ghMode)   ghDebounce.restart();
     }
     onSelectedIndexChanged: {
-        if (root.fileMode) root.updatePreview();
+        if (root.fileMode || root.ghMode) root.updatePreview();
     }
 
     // ---------- Search ----------
@@ -804,6 +844,13 @@ ShellRoot {
         return q.length === 0 ? [] : q.split(/\s+/);
     }
 
+    // Cached at root-level so it isn't reallocated on every keystroke.
+    // Only depends on `nav` and `ghReady`, so re-evaluates once when the
+    // auth probe finishes.
+    readonly property var navRows: root.ghReady
+        ? root.nav
+        : root.nav.filter(it => it.target !== root.ghCategory)
+
     readonly property var filteredItems: {
         // File and GitHub modes are their own worlds: fd and gh already
         // did the filtering, so we just pass their results through.
@@ -814,14 +861,9 @@ ShellRoot {
         const filter = root.categoryFilter;
         const cap = root.maxResults;
 
-        // GitHub nav row only shown when gh CLI is installed + authed.
-        const navRows = root.ghReady
-            ? root.nav
-            : root.nav.filter(it => it.target !== root.ghCategory);
-
         const pool = filter !== ""
             ? root.allItems.filter(it => it.category === filter)
-            : navRows.concat(root.allItems);
+            : root.navRows.concat(root.allItems);
 
         // Empty query: preserve insertion order (nav rows first, then
         // omarchy actions, then apps). No scoring, no allocation overhead.
@@ -917,10 +959,10 @@ ShellRoot {
             // Card sits slightly above visual centre so the result list grows
             // downward without dragging the search field out of the eyeline.
             y: parent.height * 0.18
-            // Wide enough in file mode for a ~520px preview pane next to
-            // the ~440px result list; narrow back to 640 at root so apps/
-            // omarchy mode keeps its compact feel.
-            width: root.fileMode ? 1000 : 640
+            // Wide in search-with-preview modes (file, github) for a
+            // ~520px preview pane next to the result list; narrow back to
+            // 640 elsewhere so apps/omarchy mode keeps its compact feel.
+            width: (root.fileMode || root.ghMode) ? 1000 : 640
             Behavior on width {
                 NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
             }
@@ -1059,7 +1101,7 @@ ShellRoot {
                         anchors.verticalCenter: parent.verticalCenter
                         text: root.categoryFilter === ""
                               ? "↑↓ / TAB  ·  ↵ OPEN  ·  ESC CLOSE"
-                              : "↑↓ / TAB  ·  ↵ " + (root.fileMode ? "OPEN FILE" : "RUN") + "  ·  ESC BACK"
+                              : "↑↓ / TAB  ·  ↵ " + (root.fileMode ? "OPEN FILE" : (root.ghMode ? "OPEN REPO" : "RUN")) + "  ·  ESC BACK"
                         color: root.sumi
                         font.family: root.mono
                         font.pixelSize: 10
@@ -1080,8 +1122,6 @@ ShellRoot {
                         id: searchPrompt
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        // Folder-search in file mode, github in gh mode,
-                        // magnifier everywhere else.
                         text: root.fileMode ? "󰉖" : (root.ghMode ? "󰊤" : "󰍉")
                         color: root.seal
                         font.family: root.mono
@@ -1096,7 +1136,9 @@ ShellRoot {
                         text: root.query.length === 0
                               ? (root.fileMode
                                  ? "Type to search files in ~ …"
-                                 : "Type to search apps, themes, settings…")
+                                 : root.ghMode
+                                    ? "Type to search GitHub repos …"
+                                    : "Type to search apps, themes, settings…")
                               : root.query
                         color: root.query.length === 0 ? root.sumi : root.ink
                         opacity: root.query.length === 0 ? 0.5 : 1.0
@@ -1142,7 +1184,7 @@ ShellRoot {
                     // hairline + 1px inverse hairline divider sits between
                     // them. animated alongside card.width for a single
                     // smooth widen-and-split motion.
-                    readonly property real listFraction: root.fileMode ? 0.44 : 1.0
+                    readonly property real listFraction: (root.fileMode || root.ghMode) ? 0.44 : 1.0
 
                     ListView {
                         id: resultList
@@ -1270,17 +1312,17 @@ ShellRoot {
                                 // shouldn't be uppercased or letter-spaced.
                                 // Cap the width so a deep path doesn't push
                                 // the title text off the row.
-                                text: row.modelData.isFile
+                                text: row.modelData.rawCategory
                                       ? (row.modelData.category || "")
                                       : (row.modelData.category || "").toUpperCase()
                                 color: row.isSelected ? root.seal : root.sumi
                                 opacity: row.isSelected ? 0.95 : 0.65
                                 font.family: root.mono
                                 font.pixelSize: 10
-                                font.letterSpacing: row.modelData.isFile ? 0 : 2
+                                font.letterSpacing: row.modelData.rawCategory ? 0 : 2
                                 elide: Text.ElideLeft
                                 horizontalAlignment: Text.AlignRight
-                                width: row.modelData.isFile
+                                width: row.modelData.rawCategory
                                        ? Math.min(implicitWidth, row.width * 0.45)
                                        : implicitWidth
                             }
@@ -1325,11 +1367,8 @@ ShellRoot {
                     }
 
                     // ---------- Preview pane ----------
-                    // Vertical hairline separating the list from the
-                    // preview. Hidden at root, fades in via the
-                    // listFraction-driven layout when file mode flips on.
                     Rectangle {
-                        visible: root.fileMode
+                        visible: root.previewActive
                         anchors.top: parent.top
                         anchors.bottom: parent.bottom
                         anchors.left: resultList.right
@@ -1339,21 +1378,21 @@ ShellRoot {
 
                     Item {
                         id: previewPane
-                        visible: root.fileMode
+                        visible: root.previewActive
                         anchors.top: parent.top
                         anchors.bottom: parent.bottom
                         anchors.left: resultList.right
                         anchors.leftMargin: 13
                         anchors.right: parent.right
 
-                        // Wraps so a long filename doesn't elide into
-                        // uselessness; capped at 2 lines for body room.
                         Text {
                             id: previewName
                             anchors.top: parent.top
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            text: root.previewPath ? root.basename(root.previewPath) : ""
+                            text: root.ghMode
+                                  ? root.previewRepo
+                                  : (root.previewPath ? root.basename(root.previewPath) : "")
                             color: root.ink
                             font.family: root.mono
                             font.pixelSize: 13
@@ -1369,9 +1408,9 @@ ShellRoot {
                             anchors.topMargin: 2
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            text: root.previewPath
-                                  ? root.tildify(root.dirname(root.previewPath))
-                                  : ""
+                            text: root.ghMode
+                                  ? root.previewRepoUrl
+                                  : (root.previewPath ? root.tildify(root.dirname(root.previewPath)) : "")
                             color: root.sumi
                             font.family: root.mono
                             font.pixelSize: 10
@@ -1387,7 +1426,7 @@ ShellRoot {
                             anchors.right: parent.right
                             height: 1
                             color: root.sep
-                            visible: root.previewPath !== ""
+                            visible: root.previewHasContent
                         }
 
                         Item {
@@ -1401,10 +1440,10 @@ ShellRoot {
 
                             Text {
                                 anchors.centerIn: parent
-                                visible: root.previewPath === ""
+                                visible: !root.previewHasContent
                                 text: root.query.length === 0
                                       ? "PREVIEW APPEARS HERE"
-                                      : "SELECT A FILE"
+                                      : (root.ghMode ? "SELECT A REPO" : "SELECT A FILE")
                                 color: root.sumi
                                 font.family: root.mono
                                 font.pixelSize: 10
@@ -1453,6 +1492,20 @@ ShellRoot {
                                 lineHeight: 1.4
                                 wrapMode: Text.WordWrap
                                 textFormat: Text.PlainText
+                            }
+
+                            Text {
+                                anchors.fill: parent
+                                visible: root.ghMode && root.previewRepoUrl !== ""
+                                text: root.previewReadme
+                                color: root.ink
+                                font.family: root.mono
+                                font.pixelSize: 10
+                                lineHeight: 1.3
+                                wrapMode: Text.Wrap
+                                textFormat: Text.PlainText
+                                elide: Text.ElideRight
+                                maximumLineCount: Math.max(1, Math.floor(previewBody.height / 13))
                             }
                         }
                     }
