@@ -71,8 +71,6 @@ ShellRoot {
     readonly property string fileCategory: "Files"
     readonly property bool fileMode: root.categoryFilter === root.fileCategory
 
-    // Icon glyph for the active drill-in, looked up by target match against
-    // the categoryNav array. Empty string at root.
     readonly property string sectionIcon: {
         if (root.categoryFilter === "") return "";
         for (let i = 0; i < root.categoryNav.length; i++) {
@@ -119,45 +117,33 @@ ShellRoot {
         "gitignore", "gitconfig", "dockerfile", "makefile", "env"
     ]
 
-    // Extension -> Nerd Font glyph for the file-mode row icon. Anything not
-    // mapped falls back to the generic "" file glyph. Keep entries here
-    // sorted by visual category to make adding new ones easy.
     readonly property var fileIcons: ({
-        // Images
         "png": "󰋩", "jpg": "󰋩", "jpeg": "󰋩", "webp": "󰋩", "gif": "󰋩",
         "bmp": "󰋩", "ico": "󰋩", "avif": "󰋩", "svg": "󰜡", "tiff": "󰋩",
-        // Video
         "mp4": "󰕧", "mkv": "󰕧", "webm": "󰕧", "mov": "󰕧", "avi": "󰕧",
         "m4v": "󰕧", "flv": "󰕧",
-        // Audio
         "mp3": "󰝚", "flac": "󰝚", "ogg": "󰝚", "wav": "󰝚", "m4a": "󰝚",
         "opus": "󰝚", "aac": "󰝚",
-        // Documents
         "pdf": "󰈦", "epub": "󰂺", "djvu": "󰈦",
         "doc": "󰈬", "docx": "󰈬", "odt": "󰈬", "rtf": "󰈬",
         "xls": "󰈛", "xlsx": "󰈛", "ods": "󰈛",
         "ppt": "󰈧", "pptx": "󰈧", "odp": "󰈧",
-        // Archives
         "zip": "󰗄", "tar": "󰗄", "gz": "󰗄", "xz": "󰗄", "bz2": "󰗄",
         "7z": "󰗄", "rar": "󰗄", "zst": "󰗄",
-        // Markup / data
         "md": "󰍔", "txt": "󰈙", "log": "󰦪", "csv": "󰈛",
         "json": "󰘦", "jsonc": "󰘦", "yaml": "󰈙", "yml": "󰈙",
         "toml": "󰈙", "xml": "󰗀", "ini": "󰒓", "cfg": "󰒓",
         "conf": "󰒓", "env": "󰒓",
-        // Shell / scripting
         "sh": "󱆃", "bash": "󱆃", "zsh": "󱆃", "fish": "󰈺",
         "lua": "󰢱", "vim": "",
-        // Web
         "html": "󰌝", "css": "󰌜", "scss": "󰌜", "sass": "󰌜",
-        // Code (language icons)
         "py": "󰌠", "js": "󰌞", "mjs": "󰌞", "cjs": "󰌞",
         "ts": "󰛦", "tsx": "󰜈", "jsx": "󰜈",
         "rs": "󱘗", "go": "󰟓", "java": "󰬷", "kt": "󱈙",
         "swift": "󰛥", "rb": "󰴭", "php": "󰌟",
         "c": "󰙱", "h": "󰙱", "cpp": "󰙲", "hpp": "󰙲", "cc": "󰙲", "hh": "󰙲",
         "qml": "󰢫", "sql": "󰆼", "el": "", "tex": "",
-        // Special filenames (no extension or .ext)
+        // Dotless filenames: fileExt() returns the whole lowercased name.
         "gitignore": "", "gitconfig": "",
         "dockerfile": "󰡨", "makefile": "󰣪"
     })
@@ -269,9 +255,9 @@ ShellRoot {
         { title: "Default Browser",  icon: "󰖟",  category: "Setup",   keywords: "default browser web chrome firefox brave edge zen chromium",                                           exec: "omarchy-menu setup" },
         { title: "Default Terminal", icon: "󰆍",  category: "Setup",   keywords: "default terminal alacritty foot ghostty kitty emulator shell",                                          exec: "omarchy-menu setup" },
         { title: "Default Editor",   icon: "󱩼",  category: "Setup",   keywords: "default editor neovim vscode cursor zed sublime helix vim emacs ide",                                  exec: "omarchy-menu setup" },
-        { title: "DNS",              icon: "󰱔", category: "Setup",   keywords: "dns resolver network domain server nameserver",                                                       exec: "omarchy-setup-dns",                  tui: "present" },
-        { title: "Fingerprint",      icon: "󰈷", category: "Setup",   keywords: "fingerprint biometric security login auth fingerprint reader",                                         exec: "omarchy-setup-security-fingerprint", tui: "present" },
-        { title: "Fido2 Key",        icon: "󰌆",  category: "Setup",   keywords: "fido2 yubikey hardware key security 2fa auth",                                                          exec: "omarchy-setup-security-fido2",       tui: "present" },
+        { title: "DNS",              icon: "󰱔", category: "Setup",   keywords: "dns resolver network domain server nameserver",                                                       exec: "omarchy-setup-dns",                  tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Fingerprint",      icon: "󰈷", category: "Setup",   keywords: "fingerprint biometric security login auth fingerprint reader",                                         exec: "omarchy-setup-security-fingerprint", tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Fido2 Key",        icon: "󰌆",  category: "Setup",   keywords: "fido2 yubikey hardware key security 2fa auth",                                                          exec: "omarchy-setup-security-fido2",       tui: "omarchy-launch-floating-terminal-with-presentation" },
         { title: "Hyprland Config",  icon: "󰢨",  category: "Setup",   keywords: "hyprland config compositor window manager edit settings",                                              exec: "omarchy-launch-editor ~/.config/hypr/hyprland.lua" },
         { title: "Hypridle Config",  icon: "󱎫",  category: "Setup",   keywords: "hypridle idle timeout lock screen blank afk",                                                          exec: "omarchy-launch-editor ~/.config/hypr/hypridle.conf" },
         { title: "Hyprlock Config",  icon: "󰌾",  category: "Setup",   keywords: "hyprlock lock screen password security",                                                                exec: "omarchy-launch-editor ~/.config/hypr/hyprlock.conf" },
@@ -283,13 +269,13 @@ ShellRoot {
         { title: "XCompose",         icon: "󰞅", category: "Setup",   keywords: "xcompose compose key special characters accents typing emoji input",                                  exec: "omarchy-launch-editor ~/.XCompose" },
 
         // ----- Install -----
-        { title: "Install Package",       icon: "󰣇", category: "Install", keywords: "install package pacman pkg arch repo add",                                  exec: "omarchy-pkg-install",          tui: "term" },
-        { title: "Install from AUR",      icon: "󰣇", category: "Install", keywords: "aur install package yay paru arch user repository",                          exec: "omarchy-pkg-aur-install",      tui: "term" },
-        { title: "Install Web App",       icon: "󱂛",  category: "Install", keywords: "web app pwa browser shortcut install chromium edge",                          exec: "omarchy-webapp-install",       tui: "present" },
-        { title: "Install TUI",           icon: "󰆍",  category: "Install", keywords: "tui terminal app cli tool install",                                            exec: "omarchy-tui-install",          tui: "present" },
+        { title: "Install Package",       icon: "󰣇", category: "Install", keywords: "install package pacman pkg arch repo add",                                  exec: "omarchy-pkg-install",          tui: "omarchy-launch-tui" },
+        { title: "Install from AUR",      icon: "󰣇", category: "Install", keywords: "aur install package yay paru arch user repository",                          exec: "omarchy-pkg-aur-install",      tui: "omarchy-launch-tui" },
+        { title: "Install Web App",       icon: "󱂛",  category: "Install", keywords: "web app pwa browser shortcut install chromium edge",                          exec: "omarchy-webapp-install",       tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Install TUI",           icon: "󰆍",  category: "Install", keywords: "tui terminal app cli tool install",                                            exec: "omarchy-tui-install",          tui: "omarchy-launch-floating-terminal-with-presentation" },
         { title: "Install Service",       icon: "󰒋",  category: "Install", keywords: "service install dropbox tailscale nordvpn vpn sunshine bitwarden",            exec: "omarchy-menu install service" },
         { title: "Install Style",         icon: "󰏘",  category: "Install", keywords: "install style theme background font palette appearance",                       exec: "omarchy-menu install style" },
-        { title: "Install Theme",         icon: "󰸌", category: "Install", keywords: "install theme color palette appearance download",                              exec: "omarchy-theme-install",        tui: "present" },
+        { title: "Install Theme",         icon: "󰸌", category: "Install", keywords: "install theme color palette appearance download",                              exec: "omarchy-theme-install",        tui: "omarchy-launch-floating-terminal-with-presentation" },
         { title: "Install Background",    icon: "󰸉",  category: "Install", keywords: "install background wallpaper image download add",                              exec: "omarchy-theme-bg-install" },
         { title: "Install Dev Env",       icon: "󰵮", category: "Install", keywords: "development install ruby rails javascript node go php python elixir zig rust java dotnet ocaml clojure scala", exec: "omarchy-menu install development" },
         { title: "Install Editor",        icon: "󱩼",  category: "Install", keywords: "editor install vscode cursor zed sublime helix vim emacs neovim ide",          exec: "omarchy-menu install editor" },
@@ -297,30 +283,30 @@ ShellRoot {
         { title: "Install Browser",       icon: "󰖟",  category: "Install", keywords: "browser install chrome edge brave firefox zen chromium web",                   exec: "omarchy-menu install browser" },
         { title: "Install AI",            icon: "󱚤", category: "Install", keywords: "ai install ollama lmstudio crush dictation voice llm gpt local",              exec: "omarchy-menu install ai" },
         { title: "Install Gaming",        icon: "󰊴",  category: "Install", keywords: "gaming install steam retroarch minecraft geforce xbox moonlight lutris heroic", exec: "omarchy-menu install gaming" },
-        { title: "Install Docker DB",     icon: "󰡨",  category: "Install", keywords: "docker database postgres mysql redis container",                                exec: "omarchy-install-docker-dbs",   tui: "present" },
-        { title: "Install Windows VM",    icon: "󰍲", category: "Install", keywords: "windows vm virtual machine qemu kvm install",                                  exec: "omarchy-windows-vm install",   tui: "present" },
+        { title: "Install Docker DB",     icon: "󰡨",  category: "Install", keywords: "docker database postgres mysql redis container",                                exec: "omarchy-install-docker-dbs",   tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Install Windows VM",    icon: "󰍲", category: "Install", keywords: "windows vm virtual machine qemu kvm install",                                  exec: "omarchy-windows-vm install",   tui: "omarchy-launch-floating-terminal-with-presentation" },
 
         // ----- Remove -----
-        { title: "Remove Package",        icon: "󰣇", category: "Remove",  keywords: "remove uninstall package pacman arch delete pkg",            exec: "omarchy-pkg-remove",          tui: "term" },
-        { title: "Remove Web App",        icon: "󱂛",  category: "Remove",  keywords: "remove web app pwa uninstall",                                exec: "omarchy-webapp-remove",       tui: "present" },
-        { title: "Remove TUI",            icon: "󰆍",  category: "Remove",  keywords: "tui remove uninstall cli tool",                               exec: "omarchy-tui-remove",          tui: "present" },
-        { title: "Remove Theme",          icon: "󰸌", category: "Remove",  keywords: "theme remove uninstall delete palette",                       exec: "omarchy-theme-remove",        tui: "present" },
-        { title: "Remove Dictation",      icon: "󰍬",  category: "Remove",  keywords: "dictation voxtype voice remove uninstall speech",             exec: "omarchy-voxtype-remove",      tui: "present" },
+        { title: "Remove Package",        icon: "󰣇", category: "Remove",  keywords: "remove uninstall package pacman arch delete pkg",            exec: "omarchy-pkg-remove",          tui: "omarchy-launch-tui" },
+        { title: "Remove Web App",        icon: "󱂛",  category: "Remove",  keywords: "remove web app pwa uninstall",                                exec: "omarchy-webapp-remove",       tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Remove TUI",            icon: "󰆍",  category: "Remove",  keywords: "tui remove uninstall cli tool",                               exec: "omarchy-tui-remove",          tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Remove Theme",          icon: "󰸌", category: "Remove",  keywords: "theme remove uninstall delete palette",                       exec: "omarchy-theme-remove",        tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Remove Dictation",      icon: "󰍬",  category: "Remove",  keywords: "dictation voxtype voice remove uninstall speech",             exec: "omarchy-voxtype-remove",      tui: "omarchy-launch-floating-terminal-with-presentation" },
         { title: "Remove Browser",        icon: "󰖟",  category: "Remove",  keywords: "browser remove uninstall chrome firefox brave edge",          exec: "omarchy-menu remove browser" },
         { title: "Remove Gaming",         icon: "󰊴",  category: "Remove",  keywords: "gaming remove uninstall steam retroarch minecraft",           exec: "omarchy-menu remove gaming" },
         { title: "Remove Dev Env",        icon: "󰵮", category: "Remove",  keywords: "development remove uninstall ruby node go python rust",       exec: "omarchy-menu remove development" },
-        { title: "Remove Preinstalls",    icon: "󰏓", category: "Remove",  keywords: "preinstalls remove cleanup bloat default apps",               exec: "omarchy-remove-preinstalls",  tui: "present" },
-        { title: "Remove Windows VM",     icon: "󰍲", category: "Remove",  keywords: "windows vm virtual machine remove uninstall",                 exec: "omarchy-windows-vm remove",   tui: "present" },
+        { title: "Remove Preinstalls",    icon: "󰏓", category: "Remove",  keywords: "preinstalls remove cleanup bloat default apps",               exec: "omarchy-remove-preinstalls",  tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Remove Windows VM",     icon: "󰍲", category: "Remove",  keywords: "windows vm virtual machine remove uninstall",                 exec: "omarchy-windows-vm remove",   tui: "omarchy-launch-floating-terminal-with-presentation" },
 
         // ----- Update -----
-        { title: "Update Omarchy",        icon: "󰦗",  category: "Update",  keywords: "update upgrade omarchy system latest sync pull",                        exec: "omarchy-update",              tui: "present" },
+        { title: "Update Omarchy",        icon: "󰦗",  category: "Update",  keywords: "update upgrade omarchy system latest sync pull",                        exec: "omarchy-update",              tui: "omarchy-launch-floating-terminal-with-presentation" },
         { title: "Update Channel",        icon: "󰔫", category: "Update",  keywords: "channel branch stable rc edge dev release track",                        exec: "omarchy-menu update" },
-        { title: "Update Themes",         icon: "󰸌", category: "Update",  keywords: "themes update refresh extra catalogue",                                  exec: "omarchy-theme-update",        tui: "present" },
-        { title: "Update Firmware",       icon: "󰍛",  category: "Update",  keywords: "firmware bios uefi fwupd update flash",                                  exec: "omarchy-update-firmware",     tui: "present" },
-        { title: "Update Time",           icon: "󰥔",  category: "Update",  keywords: "time ntp sync clock update",                                              exec: "omarchy-update-time",         tui: "present" },
-        { title: "Update Timezone",       icon: "󰃭",  category: "Update",  keywords: "timezone tz region locale time zone change",                              exec: "omarchy-tz-select",           tui: "present" },
-        { title: "Update Drive Password", icon: "󰋊",  category: "Update",  keywords: "drive password luks encryption disk security",                            exec: "omarchy-drive-password",      tui: "present" },
-        { title: "Update User Password",  icon: "󰷛",  category: "Update",  keywords: "user password passwd security login change",                              exec: "passwd",                      tui: "present" },
+        { title: "Update Themes",         icon: "󰸌", category: "Update",  keywords: "themes update refresh extra catalogue",                                  exec: "omarchy-theme-update",        tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Update Firmware",       icon: "󰍛",  category: "Update",  keywords: "firmware bios uefi fwupd update flash",                                  exec: "omarchy-update-firmware",     tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Update Time",           icon: "󰥔",  category: "Update",  keywords: "time ntp sync clock update",                                              exec: "omarchy-update-time",         tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Update Timezone",       icon: "󰃭",  category: "Update",  keywords: "timezone tz region locale time zone change",                              exec: "omarchy-tz-select",           tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Update Drive Password", icon: "󰋊",  category: "Update",  keywords: "drive password luks encryption disk security",                            exec: "omarchy-drive-password",      tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Update User Password",  icon: "󰷛",  category: "Update",  keywords: "user password passwd security login change",                              exec: "passwd",                      tui: "omarchy-launch-floating-terminal-with-presentation" },
         { title: "Reset Hyprland Config", icon: "󰑐",  category: "Update",  keywords: "reset default config hyprland restore factory refresh",                  exec: "omarchy-refresh-hyprland" },
         { title: "Reset Hypridle Config", icon: "󰑐",  category: "Update",  keywords: "reset default config hypridle idle restore",                              exec: "omarchy-refresh-hypridle" },
         { title: "Reset Hyprlock Config", icon: "󰑐",  category: "Update",  keywords: "reset default config hyprlock lock restore",                              exec: "omarchy-refresh-hyprlock" },
@@ -359,8 +345,8 @@ ShellRoot {
         { title: "Toggle Window Gaps",  icon: "󱂩",  category: "Toggle", keywords: "toggle gaps window spacing hyprland margin",                                       exec: "omarchy-hyprland-window-gaps-toggle" },
         { title: "Toggle 1-Window Ratio",icon: "󰋃", category: "Toggle", keywords: "toggle aspect ratio single window square",                                          exec: "omarchy-hyprland-window-single-square-aspect-toggle" },
         { title: "Toggle Monitor Scaling", icon: "󰍹", category: "Toggle", keywords: "toggle monitor scaling cycle resolution hidpi",                                  exec: "omarchy-hyprland-monitor-scaling-cycle" },
-        { title: "Toggle Direct Boot",  icon: "󰓅",  category: "Toggle", keywords: "toggle direct boot autologin no password",                                          exec: "omarchy-config-direct-boot", tui: "present" },
-        { title: "Toggle Passwordless Sudo", icon: "󰟵", category: "Toggle", keywords: "passwordless sudo nopasswd root admin security",                               exec: "omarchy-sudo-passwordless",  tui: "present" },
+        { title: "Toggle Direct Boot",  icon: "󰓅",  category: "Toggle", keywords: "toggle direct boot autologin no password",                                          exec: "omarchy-config-direct-boot", tui: "omarchy-launch-floating-terminal-with-presentation" },
+        { title: "Toggle Passwordless Sudo", icon: "󰟵", category: "Toggle", keywords: "passwordless sudo nopasswd root admin security",                               exec: "omarchy-sudo-passwordless",  tui: "omarchy-launch-floating-terminal-with-presentation" },
         { title: "Toggle Suspend",      icon: "󰒲", category: "Toggle", keywords: "toggle suspend disable enable sleep power",                                        exec: "omarchy-toggle-suspend" },
         { title: "Toggle Touchpad",     icon: "󰟸", category: "Toggle", keywords: "toggle touchpad trackpad enable disable",                                          exec: "omarchy-toggle-touchpad" },
         { title: "Toggle Touchscreen",  icon: "󰆽", category: "Toggle", keywords: "toggle touchscreen enable disable",                                                exec: "omarchy-toggle-touchscreen" },
@@ -373,8 +359,8 @@ ShellRoot {
 
         // ----- Share -----
         { title: "Share Clipboard",     icon: "󰅎",  category: "Share",   keywords: "share clipboard localsend send transfer",                                          exec: "omarchy-menu-share clipboard" },
-        { title: "Share File",          icon: "󰈤",  category: "Share",   keywords: "share file send transfer localsend",                                                exec: "omarchy-menu-share file",   tui: "term" },
-        { title: "Share Folder",        icon: "󰉒",  category: "Share",   keywords: "share folder directory send transfer localsend",                                    exec: "omarchy-menu-share folder", tui: "term" },
+        { title: "Share File",          icon: "󰈤",  category: "Share",   keywords: "share file send transfer localsend",                                                exec: "omarchy-menu-share file",   tui: "omarchy-launch-tui" },
+        { title: "Share Folder",        icon: "󰉒",  category: "Share",   keywords: "share folder directory send transfer localsend",                                    exec: "omarchy-menu-share folder", tui: "omarchy-launch-tui" },
         { title: "Receive (LocalSend)", icon: "󰥦", category: "Share",   keywords: "receive localsend share airdrop transfer",                                          exec: "uwsm-app -- localsend" },
 
         // ----- Trigger -----
@@ -554,17 +540,10 @@ ShellRoot {
             root.selectedIndex = 0;
             return;
         }
-        // TUI/CLI commands need a real terminal — fzf, sudo prompts, and
-        // bash `read` all fail when launched detached. Two wrappers match
-        // omarchy-menu's own dispatch:
-        //   tui: "term"     plain terminal, used for fzf selectors
-        //   tui: "present"  floating terminal with omarchy logo + done page
-        let cmd = item.exec;
-        if (item.tui === "term") {
-            cmd = "omarchy-launch-tui " + cmd;
-        } else if (item.tui === "present") {
-            cmd = "omarchy-launch-floating-terminal-with-presentation " + cmd;
-        }
+        // TUI commands need a real terminal — fzf, sudo prompts, and bash
+        // `read` fail when launched detached. `item.tui` holds the wrapper
+        // command name (omarchy-launch-tui or omarchy-launch-floating-…).
+        const cmd = item.tui ? item.tui + " " + item.exec : item.exec;
         runner.command = ["sh", "-c",
                           "setsid -f uwsm-app -- bash -c "
                           + JSON.stringify(cmd)
