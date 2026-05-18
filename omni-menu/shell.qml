@@ -4,6 +4,7 @@ import QtQuick.Effects
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
+import "Data.js" as Data
 
 // Omni-menu. A single command palette that fuses installed apps (.desktop
 // scan) with every action exposed by `omarchy-menu` — Style, Setup, Install,
@@ -22,9 +23,22 @@ import Quickshell.Io
 ShellRoot {
     id: root
 
-    // ---------- Theme paths (shared with navbar) ----------
-    readonly property string colorsPath: Quickshell.env("HOME") + "/.config/omarchy/current/theme/colors.toml"
-    readonly property string themeNamePath: Quickshell.env("HOME") + "/.config/omarchy/current/theme.name"
+    // Theme.qml owns the live palette (sourced from omarchy's colors.toml)
+    // and its derived shades. Aliased at the root so the existing UI
+    // bindings (root.paper, root.ink, …) keep working unchanged.
+    Theme { id: theme }
+    readonly property alias paper:   theme.paper
+    readonly property alias ink:     theme.ink
+    readonly property alias inkDeep: theme.inkDeep
+    readonly property alias sumi:    theme.sumi
+    readonly property alias indigo:  theme.indigo
+    readonly property alias seal:    theme.seal
+    readonly property alias bg:      theme.bg
+    readonly property alias fg:      theme.fg
+    readonly property alias muted:   theme.muted
+    readonly property alias sep:     theme.sep
+    readonly property alias rowHi:   theme.rowHi
+    readonly property alias rowSel:  theme.rowSel
 
     // Scoring weights and result cap. omarchy-menu has ~125 entries plus the
     // 12 nav rows plus ~80-200 .desktop apps, so the cap lets a quick
@@ -35,134 +49,77 @@ ShellRoot {
     readonly property int scCat:    10
     readonly property int maxResults: 250
 
-    // Palette defaults are Kanagawa Dragon; FileView below overwrites them
-    // from the live omarchy palette on load and on every theme swap.
-    property color paper:   "#181616"
-    property color ink:     "#c5c9c5"
-    property color inkDeep: "#c8c093"
-    property color sumi:    "#a6a69c"
-    property color indigo:  "#658594"
-    property color seal:    "#c4746e"
-
-    readonly property color bg:    Qt.rgba(paper.r, paper.g, paper.b, 0.96)
-    readonly property color fg:    ink
-    readonly property color muted: sumi
-    readonly property color sep:   Qt.rgba(ink.r, ink.g, ink.b, 0.18)
-    readonly property color rowHi: Qt.rgba(ink.r, ink.g, ink.b, 0.06)
-    readonly property color rowSel: Qt.rgba(seal.r, seal.g, seal.b, 0.18)
-
     readonly property string mono:  "JetBrainsMono Nerd Font"
     readonly property string serif: "serif"
+
+    // .desktop scanner — one-shot at startup, refreshable via IPC.
+    // Annotated apps land on `appScan.apps`; `allItems` rebinds when they
+    // arrive so the pool is always omarchy actions + scanned apps.
+    AppScan {
+        id: appScan
+        onScanned: root.allItems = root.omarchy.concat(appScan.apps)
+    }
+    readonly property alias appsLoaded: appScan.loaded
 
     // ---------- Visibility / state ----------
     property bool visible_: false
     property string query: ""
     property int selectedIndex: 0
-    property var apps: []
-    property bool appsLoaded: false
     // Active drill-down. "" means root (category navigators + everything
     // searchable); any other value pins the list to that category. Set by
     // activating a category nav row; cleared by Esc / Backspace-on-empty.
     property string categoryFilter: ""
 
-    // File-search reuses the category-drill machinery: the Files nav row
-    // sets categoryFilter to this sentinel, filteredItems pivots to fd
-    // results, and goUp/Esc unwind via the same path as any other category.
-    readonly property string fileCategory: "Files"
-    readonly property bool fileMode: root.categoryFilter === root.fileCategory
+    // File and GitHub search drills reuse the category machinery: the
+    // Files/GitHub nav rows set categoryFilter to one of Data's sentinels,
+    // filteredItems pivots to the matching results array, and goUp/Esc
+    // unwind via the same path as any other category.
+    readonly property bool fileMode: root.categoryFilter === Data.fileCategory
+    readonly property bool ghMode: root.categoryFilter === Data.ghCategory
 
-    readonly property string ghCategory: "GitHub"
-    readonly property bool ghMode: root.categoryFilter === root.ghCategory
-    property bool ghReady: false
-    property var ghItems: []
-    readonly property bool ghRunning: ghProc.running
+    // gh CLI-backed repo search + README preview.
+    GhSearch {
+        id: ghSearch
+        query: root.query
+        active: root.ghMode
+        selectedItem: root.filteredItems[root.selectedIndex] || null
+    }
+    readonly property alias ghReady:        ghSearch.ready
+    readonly property alias ghItems:        ghSearch.items
+    readonly property alias ghRunning:      ghSearch.running
+    readonly property alias previewRepo:    ghSearch.previewRepo
+    readonly property alias previewRepoUrl: ghSearch.previewRepoUrl
+    readonly property alias previewReadme:  ghSearch.previewReadme
 
     readonly property string sectionIcon: {
         if (root.categoryFilter === "") return "";
-        for (let i = 0; i < root.categoryNav.length; i++) {
-            if (root.categoryNav[i].target === root.categoryFilter)
-                return root.categoryNav[i].icon;
+        for (let i = 0; i < Data.categoryNav.length; i++) {
+            if (Data.categoryNav[i].target === root.categoryFilter)
+                return Data.categoryNav[i].icon;
         }
         return "";
     }
 
-    property var fileItems: []
-    readonly property bool fdRunning: fdProc.running
+    // fd-backed file search + file preview. Aliases mirror the prior root
+    // properties so the panel UI doesn't have to change wholesale.
+    FileSearch {
+        id: fileSearch
+        query: root.query
+        queryTokens: root.queryTokens
+        active: root.fileMode
+        selectedItem: root.filteredItems[root.selectedIndex] || null
+    }
+    readonly property alias fileItems:    fileSearch.items
+    readonly property alias fdRunning:    fileSearch.running
+    readonly property alias previewPath:  fileSearch.previewPath
+    readonly property alias previewText:  fileSearch.previewText
+    readonly property alias previewMeta:  fileSearch.previewMeta
+    readonly property alias previewKind:  fileSearch.previewKind
 
-    property string previewPath: ""
-    property string previewText: ""
-    property string previewMeta: ""
-    property string previewRepo: ""
-    property string previewRepoUrl: ""
-    property string previewReadme: ""
     readonly property bool previewActive: root.fileMode || root.ghMode
     readonly property bool previewHasContent: root.previewPath !== "" || root.previewRepoUrl !== ""
-    readonly property string previewKind: {
-        if (!root.previewPath) return "";
-        const ext = root.fileExt(root.previewPath);
-        if (root.imageExts.indexOf(ext) >= 0) return "image";
-        if (root.textExts.indexOf(ext) >= 0) return "text";
-        return "meta";
-    }
 
     readonly property string homeDir: Quickshell.env("HOME")
-
-    // fd already respects .gitignore, the global ignore file, and skips
-    // hidden files by default. These excludes catch build dirs that
-    // aren't always gitignored.
-    readonly property var fdExcludes: [
-        "node_modules", "target", "dist", "build", ".cache",
-        ".venv", "__pycache__", ".tox", ".next", ".nuxt"
-    ]
-
-    readonly property var imageExts: [
-        "png", "jpg", "jpeg", "webp", "gif", "bmp", "ico", "avif", "svg"
-    ]
-
-    readonly property var textExts: [
-        "md", "txt", "qml", "lua", "toml", "sh", "bash", "zsh", "fish",
-        "py", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "jsonc",
-        "yaml", "yml", "rs", "go", "c", "h", "cpp", "hpp", "cc", "hh",
-        "html", "css", "scss", "conf", "ini", "cfg", "log", "csv", "xml",
-        "rb", "java", "kt", "swift", "php", "sql", "vim", "el", "tex",
-        "gitignore", "gitconfig", "dockerfile", "makefile", "env"
-    ]
-
-    readonly property var fileIcons: ({
-        "png": "󰋩", "jpg": "󰋩", "jpeg": "󰋩", "webp": "󰋩", "gif": "󰋩",
-        "bmp": "󰋩", "ico": "󰋩", "avif": "󰋩", "svg": "󰜡", "tiff": "󰋩",
-        "mp4": "󰕧", "mkv": "󰕧", "webm": "󰕧", "mov": "󰕧", "avi": "󰕧",
-        "m4v": "󰕧", "flv": "󰕧",
-        "mp3": "󰝚", "flac": "󰝚", "ogg": "󰝚", "wav": "󰝚", "m4a": "󰝚",
-        "opus": "󰝚", "aac": "󰝚",
-        "pdf": "󰈦", "epub": "󰂺", "djvu": "󰈦",
-        "doc": "󰈬", "docx": "󰈬", "odt": "󰈬", "rtf": "󰈬",
-        "xls": "󰈛", "xlsx": "󰈛", "ods": "󰈛",
-        "ppt": "󰈧", "pptx": "󰈧", "odp": "󰈧",
-        "zip": "󰗄", "tar": "󰗄", "gz": "󰗄", "xz": "󰗄", "bz2": "󰗄",
-        "7z": "󰗄", "rar": "󰗄", "zst": "󰗄",
-        "md": "󰍔", "txt": "󰈙", "log": "󰦪", "csv": "󰈛",
-        "json": "󰘦", "jsonc": "󰘦", "yaml": "󰈙", "yml": "󰈙",
-        "toml": "󰈙", "xml": "󰗀", "ini": "󰒓", "cfg": "󰒓",
-        "conf": "󰒓", "env": "󰒓",
-        "sh": "󱆃", "bash": "󱆃", "zsh": "󱆃", "fish": "󰈺",
-        "lua": "󰢱", "vim": "",
-        "html": "󰌝", "css": "󰌜", "scss": "󰌜", "sass": "󰌜",
-        "py": "󰌠", "js": "󰌞", "mjs": "󰌞", "cjs": "󰌞",
-        "ts": "󰛦", "tsx": "󰜈", "jsx": "󰜈",
-        "rs": "󱘗", "go": "󰟓", "java": "󰬷", "kt": "󱈙",
-        "swift": "󰛥", "rb": "󰴭", "php": "󰌟",
-        "c": "󰙱", "h": "󰙱", "cpp": "󰙲", "hpp": "󰙲", "cc": "󰙲", "hh": "󰙲",
-        "qml": "󰢫", "sql": "󰆼", "el": "", "tex": "",
-        // Dotless filenames: fileExt() returns the whole lowercased name.
-        "gitignore": "", "gitconfig": "",
-        "dockerfile": "󰡨", "makefile": "󰣪"
-    })
-
-    function fileIcon(path) {
-        const ext = root.fileExt(path);
-        return root.fileIcons[ext] || "";
-    }
 
     function open() {
         root.query = "";
@@ -185,319 +142,12 @@ ShellRoot {
     }
 
     // Entering or leaving file mode resets fd state. Other category drills
-    // share the same handler — clearing fileItems for them is a free no-op.
+    // share the same handler — clearing both is a free no-op for other drills.
     onCategoryFilterChanged: {
-        root.fileItems = [];
-        root.previewPath = "";
-        root.previewText = "";
-        root.previewMeta = "";
-        root.ghItems = [];
-        root.previewRepo = "";
-        root.previewRepoUrl = "";
-        root.previewReadme = "";
-        fdDebounce.stop();
-        ghDebounce.stop();
+        fileSearch.clear();
+        ghSearch.clear();
     }
 
-    // ---------- Palette loader ----------
-    function parseColors(text) {
-        const want = { background: null, foreground: null, accent: null,
-                       color1: null, color7: null, color8: null };
-        const re = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]+)"/;
-        const lines = text.split("\n");
-        for (let i = 0; i < lines.length; i++) {
-            const m = lines[i].match(re);
-            if (m && (m[1] in want)) want[m[1]] = m[2];
-        }
-        if (want.background) root.paper   = want.background;
-        if (want.foreground) root.ink     = want.foreground;
-        if (want.color7)     root.inkDeep = want.color7;
-        if (want.color8)     root.sumi    = want.color8;
-        if (want.accent)     root.indigo  = want.accent;
-        if (want.color1)     root.seal    = want.color1;
-    }
-    FileView {
-        id: paletteFile
-        path: root.colorsPath
-        watchChanges: true
-        onFileChanged: reload()
-        onLoaded: root.parseColors(paletteFile.text())
-    }
-
-    // omarchy-theme-set rm -rf's current/theme/ and mv's a fresh dir in, so
-    // colors.toml gets a new inode each swap and paletteFile's inotify watch
-    // dies with it. theme.name, by contrast, is rewritten in place so its
-    // inode is stable. Use it as a swap-detection beacon and re-arm
-    // paletteFile.
-    FileView {
-        id: themeMarker
-        path: root.themeNamePath
-        watchChanges: true
-        onFileChanged: { reload(); paletteFile.reload(); }
-    }
-
-    // ---------- Static omarchy-menu items ----------
-    // Every leaf action `omarchy-menu` can dispatch is flattened here with a
-    // synonym list so search hits non-obvious terms. `exec` is the bash run
-    // verbatim; for items that drop into walker submenus we shell out to
-    // `omarchy-menu <verb>` and let the existing dmenu UX take it from there.
-    readonly property var omarchyItems: [
-        // ----- Style -----
-        // Picker items delegate to `omarchy-menu <verb>` — those that
-        // accept the verb directly (theme, background, about) jump to a
-        // single-step walker picker; the rest (Font, Waybar Position,
-        // Corners, Screensaver) route to `omarchy-menu style` and need one
-        // extra click. Matches the bash menu's actual reachable surface;
-        // see go_to_menu() in omarchy-menu for the verb list.
-        { title: "Theme",            icon: "󰸌", category: "Style",   keywords: "theme color palette dark light mode appearance look style scheme switcher kanagawa tokyo dragon nord gruvbox", exec: "omarchy-menu theme" },
-        { title: "Background",       icon: "󰸉",  category: "Style",   keywords: "background wallpaper image desktop picture backdrop bg",                                                 exec: "omarchy-menu background" },
-        { title: "Font",             icon: "󰛖",  category: "Style",   keywords: "font typeface monospace typography family character glyph nerd",                                        exec: "omarchy-menu style" },
-        { title: "Waybar Position",  icon: "󰍜", category: "Style",   keywords: "bar panel top bottom left right position dock waybar status",                                          exec: "omarchy-menu style" },
-        { title: "Corners",          icon: "󰘇", category: "Style",   keywords: "corners radius round sharp border edge shape window",                                                  exec: "omarchy-menu style" },
-        { title: "Hyprland Look",    icon: "󰕮",  category: "Style",   keywords: "hyprland looknfeel border gaps animation effects compositor window",                                   exec: "omarchy-launch-editor ~/.config/hypr/looknfeel.lua" },
-        { title: "Screensaver",      icon: "󱄄", category: "Style",   keywords: "screensaver branding lock idle screen saver text image logo",                                        exec: "omarchy-menu style" },
-        { title: "About",            icon: "󰋽",  category: "Style",   keywords: "about branding logo profile text image owner identity",                                                exec: "omarchy-menu about" },
-        { title: "Unlock Theme",     icon: "󰟵", category: "Style",   keywords: "unlock premium paid theme purchase license",                                                          exec: "omarchy-launch-walker -m menus:omarchyunlocks --width 800 --minheight 400" },
-
-        // ----- Setup -----
-        { title: "Audio",            icon: "󰕾",  category: "Setup",   keywords: "audio sound speaker mixer pulse pipewire volume output input device",                                  exec: "omarchy-launch-audio" },
-        { title: "Wi-Fi",            icon: "󰖩",  category: "Setup",   keywords: "wifi wireless network internet nmcli connection",                                                      exec: "omarchy-launch-wifi" },
-        { title: "Bluetooth",        icon: "󰂯", category: "Setup",   keywords: "bluetooth bt pair device headset speaker keyboard mouse",                                              exec: "omarchy-launch-bluetooth" },
-        { title: "Power Profile",    icon: "󱐋", category: "Setup",   keywords: "power profile performance battery saver balanced cpu governor",                                       exec: "omarchy-menu power" },
-        { title: "System Sleep",     icon: "󰤄",  category: "Setup",   keywords: "sleep suspend hibernate power management lid",                                                         exec: "omarchy-menu setup" },
-        { title: "Monitors",         icon: "󰍹", category: "Setup",   keywords: "monitor display screen resolution scaling refresh hz external hdmi displayport",                       exec: "omarchy-launch-editor ~/.config/hypr/monitors.lua" },
-        { title: "Keybindings",      icon: "󰌌",  category: "Setup",   keywords: "keybindings shortcuts hotkeys keymap bindings input hypr",                                              exec: "omarchy-launch-editor ~/.config/hypr/bindings.lua" },
-        { title: "Input",            icon: "󰍽",  category: "Setup",   keywords: "input keyboard mouse touchpad layout language repeat",                                                 exec: "omarchy-launch-editor ~/.config/hypr/input.lua" },
-        { title: "Default Browser",  icon: "󰖟",  category: "Setup",   keywords: "default browser web chrome firefox brave edge zen chromium",                                           exec: "omarchy-menu setup" },
-        { title: "Default Terminal", icon: "󰆍",  category: "Setup",   keywords: "default terminal alacritty foot ghostty kitty emulator shell",                                          exec: "omarchy-menu setup" },
-        { title: "Default Editor",   icon: "󱩼",  category: "Setup",   keywords: "default editor neovim vscode cursor zed sublime helix vim emacs ide",                                  exec: "omarchy-menu setup" },
-        { title: "DNS",              icon: "󰱔", category: "Setup",   keywords: "dns resolver network domain server nameserver",                                                       exec: "omarchy-setup-dns",                  tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Fingerprint",      icon: "󰈷", category: "Setup",   keywords: "fingerprint biometric security login auth fingerprint reader",                                         exec: "omarchy-setup-security-fingerprint", tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Fido2 Key",        icon: "󰌆",  category: "Setup",   keywords: "fido2 yubikey hardware key security 2fa auth",                                                          exec: "omarchy-setup-security-fido2",       tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Hyprland Config",  icon: "󰢨",  category: "Setup",   keywords: "hyprland config compositor window manager edit settings",                                              exec: "omarchy-launch-editor ~/.config/hypr/hyprland.lua" },
-        { title: "Hypridle Config",  icon: "󱎫",  category: "Setup",   keywords: "hypridle idle timeout lock screen blank afk",                                                          exec: "omarchy-launch-editor ~/.config/hypr/hypridle.conf" },
-        { title: "Hyprlock Config",  icon: "󰌾",  category: "Setup",   keywords: "hyprlock lock screen password security",                                                                exec: "omarchy-launch-editor ~/.config/hypr/hyprlock.conf" },
-        { title: "Hyprsunset Config",icon: "󰖕",  category: "Setup",   keywords: "hyprsunset nightlight blue light filter warm temperature",                                              exec: "omarchy-launch-editor ~/.config/hypr/hyprsunset.conf" },
-        { title: "Plymouth",         icon: "󱣴", category: "Setup",   keywords: "plymouth boot splash screen logo",                                                                     exec: "omarchy-refresh-plymouth" },
-        { title: "Swayosd Config",   icon: "󰧴",  category: "Setup",   keywords: "swayosd osd volume brightness indicator overlay",                                                       exec: "omarchy-launch-editor ~/.config/swayosd/config.toml" },
-        { title: "Walker Config",    icon: "󰌧", category: "Setup",   keywords: "walker launcher runner dmenu picker rofi",                                                              exec: "omarchy-launch-editor ~/.config/walker/config.toml" },
-        { title: "Waybar Config",    icon: "󰍜", category: "Setup",   keywords: "waybar status bar config modules",                                                                      exec: "omarchy-launch-editor ~/.config/waybar/config.jsonc" },
-        { title: "XCompose",         icon: "󰞅", category: "Setup",   keywords: "xcompose compose key special characters accents typing emoji input",                                  exec: "omarchy-launch-editor ~/.XCompose" },
-
-        // ----- Install -----
-        { title: "Install Package",       icon: "󰣇", category: "Install", keywords: "install package pacman pkg arch repo add",                                  exec: "omarchy-pkg-install",          tui: "omarchy-launch-tui" },
-        { title: "Install from AUR",      icon: "󰣇", category: "Install", keywords: "aur install package yay paru arch user repository",                          exec: "omarchy-pkg-aur-install",      tui: "omarchy-launch-tui" },
-        { title: "Install Web App",       icon: "󱂛",  category: "Install", keywords: "web app pwa browser shortcut install chromium edge",                          exec: "omarchy-webapp-install",       tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Install TUI",           icon: "󰆍",  category: "Install", keywords: "tui terminal app cli tool install",                                            exec: "omarchy-tui-install",          tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Install Service",       icon: "󰒋",  category: "Install", keywords: "service install dropbox tailscale nordvpn vpn sunshine bitwarden",            exec: "omarchy-menu install service" },
-        { title: "Install Style",         icon: "󰏘",  category: "Install", keywords: "install style theme background font palette appearance",                       exec: "omarchy-menu install style" },
-        { title: "Install Theme",         icon: "󰸌", category: "Install", keywords: "install theme color palette appearance download",                              exec: "omarchy-theme-install",        tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Install Background",    icon: "󰸉",  category: "Install", keywords: "install background wallpaper image download add",                              exec: "omarchy-theme-bg-install" },
-        { title: "Install Dev Env",       icon: "󰵮", category: "Install", keywords: "development install ruby rails javascript node go php python elixir zig rust java dotnet ocaml clojure scala", exec: "omarchy-menu install development" },
-        { title: "Install Editor",        icon: "󱩼",  category: "Install", keywords: "editor install vscode cursor zed sublime helix vim emacs neovim ide",          exec: "omarchy-menu install editor" },
-        { title: "Install Terminal",      icon: "󰆍",  category: "Install", keywords: "terminal install alacritty foot ghostty kitty",                                exec: "omarchy-menu install terminal" },
-        { title: "Install Browser",       icon: "󰖟",  category: "Install", keywords: "browser install chrome edge brave firefox zen chromium web",                   exec: "omarchy-menu install browser" },
-        { title: "Install AI",            icon: "󱚤", category: "Install", keywords: "ai install ollama lmstudio crush dictation voice llm gpt local",              exec: "omarchy-menu install ai" },
-        { title: "Install Gaming",        icon: "󰊴",  category: "Install", keywords: "gaming install steam retroarch minecraft geforce xbox moonlight lutris heroic", exec: "omarchy-menu install gaming" },
-        { title: "Install Docker DB",     icon: "󰡨",  category: "Install", keywords: "docker database postgres mysql redis container",                                exec: "omarchy-install-docker-dbs",   tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Install Windows VM",    icon: "󰍲", category: "Install", keywords: "windows vm virtual machine qemu kvm install",                                  exec: "omarchy-windows-vm install",   tui: "omarchy-launch-floating-terminal-with-presentation" },
-
-        // ----- Remove -----
-        { title: "Remove Package",        icon: "󰣇", category: "Remove",  keywords: "remove uninstall package pacman arch delete pkg",            exec: "omarchy-pkg-remove",          tui: "omarchy-launch-tui" },
-        { title: "Remove Web App",        icon: "󱂛",  category: "Remove",  keywords: "remove web app pwa uninstall",                                exec: "omarchy-webapp-remove",       tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Remove TUI",            icon: "󰆍",  category: "Remove",  keywords: "tui remove uninstall cli tool",                               exec: "omarchy-tui-remove",          tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Remove Theme",          icon: "󰸌", category: "Remove",  keywords: "theme remove uninstall delete palette",                       exec: "omarchy-theme-remove",        tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Remove Dictation",      icon: "󰍬",  category: "Remove",  keywords: "dictation voxtype voice remove uninstall speech",             exec: "omarchy-voxtype-remove",      tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Remove Browser",        icon: "󰖟",  category: "Remove",  keywords: "browser remove uninstall chrome firefox brave edge",          exec: "omarchy-menu remove browser" },
-        { title: "Remove Gaming",         icon: "󰊴",  category: "Remove",  keywords: "gaming remove uninstall steam retroarch minecraft",           exec: "omarchy-menu remove gaming" },
-        { title: "Remove Dev Env",        icon: "󰵮", category: "Remove",  keywords: "development remove uninstall ruby node go python rust",       exec: "omarchy-menu remove development" },
-        { title: "Remove Preinstalls",    icon: "󰏓", category: "Remove",  keywords: "preinstalls remove cleanup bloat default apps",               exec: "omarchy-remove-preinstalls",  tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Remove Windows VM",     icon: "󰍲", category: "Remove",  keywords: "windows vm virtual machine remove uninstall",                 exec: "omarchy-windows-vm remove",   tui: "omarchy-launch-floating-terminal-with-presentation" },
-
-        // ----- Update -----
-        { title: "Update Omarchy",        icon: "󰦗",  category: "Update",  keywords: "update upgrade omarchy system latest sync pull",                        exec: "omarchy-update",              tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Update Channel",        icon: "󰔫", category: "Update",  keywords: "channel branch stable rc edge dev release track",                        exec: "omarchy-menu update" },
-        { title: "Update Themes",         icon: "󰸌", category: "Update",  keywords: "themes update refresh extra catalogue",                                  exec: "omarchy-theme-update",        tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Update Firmware",       icon: "󰍛",  category: "Update",  keywords: "firmware bios uefi fwupd update flash",                                  exec: "omarchy-update-firmware",     tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Update Time",           icon: "󰥔",  category: "Update",  keywords: "time ntp sync clock update",                                              exec: "omarchy-update-time",         tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Update Timezone",       icon: "󰃭",  category: "Update",  keywords: "timezone tz region locale time zone change",                              exec: "omarchy-tz-select",           tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Update Drive Password", icon: "󰋊",  category: "Update",  keywords: "drive password luks encryption disk security",                            exec: "omarchy-drive-password",      tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Update User Password",  icon: "󰷛",  category: "Update",  keywords: "user password passwd security login change",                              exec: "passwd",                      tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Reset Hyprland Config", icon: "󰑐",  category: "Update",  keywords: "reset default config hyprland restore factory refresh",                  exec: "omarchy-refresh-hyprland" },
-        { title: "Reset Hypridle Config", icon: "󰑐",  category: "Update",  keywords: "reset default config hypridle idle restore",                              exec: "omarchy-refresh-hypridle" },
-        { title: "Reset Hyprlock Config", icon: "󰑐",  category: "Update",  keywords: "reset default config hyprlock lock restore",                              exec: "omarchy-refresh-hyprlock" },
-        { title: "Reset Hyprsunset Cfg",  icon: "󰑐",  category: "Update",  keywords: "reset default config hyprsunset nightlight restore",                      exec: "omarchy-refresh-hyprsunset" },
-        { title: "Reset Swayosd Config",  icon: "󰑐",  category: "Update",  keywords: "reset default config swayosd osd restore",                                exec: "omarchy-refresh-swayosd" },
-        { title: "Reset Tmux Config",     icon: "󰑐",  category: "Update",  keywords: "reset default config tmux restore",                                       exec: "omarchy-refresh-tmux" },
-        { title: "Reset Walker Config",   icon: "󰌧", category: "Update",  keywords: "reset default config walker launcher restore",                            exec: "omarchy-refresh-walker" },
-        { title: "Reset Waybar Config",   icon: "󰍜", category: "Update",  keywords: "reset default config waybar bar restore",                                 exec: "omarchy-refresh-waybar" },
-        { title: "Restart Hypridle",      icon: "󰜉",  category: "Update",  keywords: "restart hypridle idle service process reload",                            exec: "omarchy-restart-hypridle" },
-        { title: "Restart Hyprsunset",    icon: "󰜉",  category: "Update",  keywords: "restart hyprsunset nightlight service process reload",                    exec: "omarchy-restart-hyprsunset" },
-        { title: "Restart Mako",          icon: "󰎟", category: "Update",  keywords: "restart mako notifications dunst service reload",                         exec: "omarchy-restart-mako" },
-        { title: "Restart Swayosd",       icon: "󰜉",  category: "Update",  keywords: "restart swayosd osd service reload",                                      exec: "omarchy-restart-swayosd" },
-        { title: "Restart Walker",        icon: "󰌧", category: "Update",  keywords: "restart walker launcher service reload",                                  exec: "omarchy-restart-walker" },
-        { title: "Restart Waybar",        icon: "󰍜", category: "Update",  keywords: "restart waybar bar service reload",                                       exec: "omarchy-restart-waybar" },
-        { title: "Restart Audio",         icon: "󰜉",  category: "Update",  keywords: "restart audio pipewire pulse sound reload service",                       exec: "omarchy-restart-pipewire" },
-        { title: "Restart Wi-Fi",         icon: "󱚾", category: "Update",  keywords: "restart wifi wireless network reload service",                            exec: "omarchy-restart-wifi" },
-        { title: "Restart Bluetooth",     icon: "󰂯", category: "Update",  keywords: "restart bluetooth bt reload service",                                     exec: "omarchy-restart-bluetooth" },
-        { title: "Restart Trackpad",      icon: "󰟸", category: "Update",  keywords: "restart trackpad touchpad pointer reload service",                        exec: "omarchy-restart-trackpad" },
-
-        // ----- System -----
-        { title: "Lock Screen",         icon: "󰌾", category: "System", keywords: "lock screen security hyprlock password",                                            exec: "omarchy-system-lock" },
-        { title: "Force Screensaver",   icon: "󱄄", category: "System", keywords: "screensaver force start show idle",                                              exec: "omarchy-launch-screensaver force" },
-        { title: "Suspend",             icon: "󰒲", category: "System", keywords: "suspend sleep power down ram s3",                                                 exec: "systemctl suspend" },
-        { title: "Hibernate",           icon: "󰤁", category: "System", keywords: "hibernate disk power down s4 swap",                                               exec: "systemctl hibernate" },
-        { title: "Logout",              icon: "󰍃", category: "System", keywords: "logout signout exit session end",                                                  exec: "omarchy-system-logout" },
-        { title: "Restart Computer",    icon: "󰜉", category: "System", keywords: "restart reboot reset power cycle",                                                exec: "omarchy-system-reboot" },
-        { title: "Shutdown",            icon: "󰐥", category: "System", keywords: "shutdown poweroff off halt turn off",                                              exec: "omarchy-system-shutdown" },
-
-        // ----- Toggle -----
-        { title: "Toggle Screensaver",  icon: "󱄄", category: "Toggle", keywords: "toggle screensaver enable disable on off",                                        exec: "omarchy-toggle-screensaver" },
-        { title: "Toggle Nightlight",   icon: "󰔎", category: "Toggle", keywords: "toggle nightlight blue light filter warm color temperature hyprsunset",            exec: "omarchy-toggle-nightlight" },
-        { title: "Toggle Idle Lock",    icon: "󱫖", category: "Toggle", keywords: "toggle idle lock auto away timeout",                                                exec: "omarchy-toggle-idle" },
-        { title: "Toggle Notifications",icon: "󰂛", category: "Toggle", keywords: "toggle notifications silence mute mako dnd",                                       exec: "omarchy-toggle-notification-silencing" },
-        { title: "Toggle Top Bar",      icon: "󰍜", category: "Toggle", keywords: "toggle waybar top bar show hide visibility",                                       exec: "omarchy-toggle-waybar" },
-        { title: "Toggle Workspace Layout", icon: "󱂬", category: "Toggle", keywords: "toggle workspace layout dwindle master tile hyprland",                          exec: "omarchy-hyprland-workspace-layout-toggle" },
-        { title: "Toggle Window Gaps",  icon: "󱂩",  category: "Toggle", keywords: "toggle gaps window spacing hyprland margin",                                       exec: "omarchy-hyprland-window-gaps-toggle" },
-        { title: "Toggle 1-Window Ratio",icon: "󰋃", category: "Toggle", keywords: "toggle aspect ratio single window square",                                          exec: "omarchy-hyprland-window-single-square-aspect-toggle" },
-        { title: "Toggle Monitor Scaling", icon: "󰍹", category: "Toggle", keywords: "toggle monitor scaling cycle resolution hidpi",                                  exec: "omarchy-hyprland-monitor-scaling-cycle" },
-        { title: "Toggle Direct Boot",  icon: "󰓅",  category: "Toggle", keywords: "toggle direct boot autologin no password",                                          exec: "omarchy-config-direct-boot", tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Toggle Passwordless Sudo", icon: "󰟵", category: "Toggle", keywords: "passwordless sudo nopasswd root admin security",                               exec: "omarchy-sudo-passwordless",  tui: "omarchy-launch-floating-terminal-with-presentation" },
-        { title: "Toggle Suspend",      icon: "󰒲", category: "Toggle", keywords: "toggle suspend disable enable sleep power",                                        exec: "omarchy-toggle-suspend" },
-        { title: "Toggle Touchpad",     icon: "󰟸", category: "Toggle", keywords: "toggle touchpad trackpad enable disable",                                          exec: "omarchy-toggle-touchpad" },
-        { title: "Toggle Touchscreen",  icon: "󰆽", category: "Toggle", keywords: "toggle touchscreen enable disable",                                                exec: "omarchy-toggle-touchscreen" },
-
-        // ----- Capture -----
-        { title: "Screenshot",          icon: "󰄀",  category: "Capture", keywords: "screenshot screen capture image png shot snip print",                              exec: "omarchy-capture-screenshot" },
-        { title: "Screen Record",       icon: "󰑊",  category: "Capture", keywords: "screen record video capture mp4 gif",                                              exec: "omarchy-capture-screenrecording" },
-        { title: "Text Extraction (OCR)",icon: "󰴑", category: "Capture", keywords: "ocr text extract recognize image scan copy",                                       exec: "omarchy-capture-text-extraction" },
-        { title: "Color Picker",        icon: "󰃉", category: "Capture", keywords: "color picker hex rgb hyprpicker dropper sample eyedropper",                        exec: "bash -c 'pkill hyprpicker || hyprpicker -a'" },
-
-        // ----- Share -----
-        { title: "Share Clipboard",     icon: "󰅎",  category: "Share",   keywords: "share clipboard localsend send transfer",                                          exec: "omarchy-menu-share clipboard" },
-        { title: "Share File",          icon: "󰈤",  category: "Share",   keywords: "share file send transfer localsend",                                                exec: "omarchy-menu-share file",   tui: "omarchy-launch-tui" },
-        { title: "Share Folder",        icon: "󰉒",  category: "Share",   keywords: "share folder directory send transfer localsend",                                    exec: "omarchy-menu-share folder", tui: "omarchy-launch-tui" },
-        { title: "Receive (LocalSend)", icon: "󰥦", category: "Share",   keywords: "receive localsend share airdrop transfer",                                          exec: "uwsm-app -- localsend" },
-
-        // ----- Trigger -----
-        { title: "Set Reminder",        icon: "󰔛", category: "Trigger", keywords: "reminder alarm timer notify wake notification",                                    exec: "omarchy-menu reminder-set" },
-        { title: "Show Reminders",      icon: "󰔛", category: "Trigger", keywords: "reminders show list pending",                                                       exec: "omarchy-reminder show" },
-        { title: "Clear Reminders",     icon: "󰔛", category: "Trigger", keywords: "reminders clear delete remove all",                                                 exec: "omarchy-reminder clear" },
-        { title: "Transcode Media",     icon: "󰧸", category: "Trigger", keywords: "transcode media video audio convert compress mp4 mp3",                              exec: "omarchy-transcode" },
-
-        // ----- Learn -----
-        { title: "Keybindings",         icon: "󰌌",  category: "Learn", keywords: "keybindings shortcuts hotkeys cheatsheet reference help",                              exec: "omarchy-menu-keybindings" },
-        { title: "Tmux Keybindings",    icon: "󱂬",  category: "Learn", keywords: "tmux keybindings shortcuts reference",                                                 exec: "omarchy-menu-tmux-keybindings" },
-        { title: "Omarchy Manual",      icon: "󰂺",  category: "Learn", keywords: "omarchy manual docs documentation help learn",                                         exec: "omarchy-launch-webapp 'https://learn.omacom.io/2/the-omarchy-manual'" },
-        { title: "Hyprland Wiki",       icon: "󱁉",  category: "Learn", keywords: "hyprland wiki docs documentation help",                                                exec: "omarchy-launch-webapp 'https://wiki.hypr.land/'" },
-        { title: "Arch Wiki",           icon: "󰣇", category: "Learn", keywords: "arch wiki docs documentation help linux",                                              exec: "omarchy-launch-webapp 'https://wiki.archlinux.org/title/Main_page'" },
-        { title: "Neovim Keymaps",      icon: "󰕷",  category: "Learn", keywords: "neovim nvim keymaps shortcuts lazyvim reference",                                      exec: "omarchy-launch-webapp 'https://www.lazyvim.org/keymaps'" },
-        { title: "Bash Cheatsheet",     icon: "󱆃", category: "Learn", keywords: "bash shell cheatsheet reference scripting",                                            exec: "omarchy-launch-webapp 'https://devhints.io/bash'" }
-    ]
-
-    // ---------- Desktop file scan ----------
-    // configparser handles the gnarly bits — section headers, continuation
-    // lines, encodings, comments, mixed quoting. One spawn at startup; the
-    // result is cached for the session and refreshed only via IPC.
-    Process {
-        id: appScan
-        running: false
-        command: ["python3", "-c", "import os, glob, re, configparser, sys\n" +
-            "dirs = [\n" +
-            "    os.path.expanduser('~/.local/share/applications'),\n" +
-            "    '/usr/share/applications',\n" +
-            "    '/var/lib/flatpak/exports/share/applications',\n" +
-            "    os.path.expanduser('~/.local/share/flatpak/exports/share/applications'),\n" +
-            "    '/var/lib/snapd/desktop/applications',\n" +
-            "]\n" +
-            "rx = re.compile(r'%[fFuUdDnNickvm]')\n" +
-            "seen = set()\n" +
-            "out = []\n" +
-            "for d in dirs:\n" +
-            "    if not os.path.isdir(d):\n" +
-            "        continue\n" +
-            "    for f in sorted(glob.glob(os.path.join(d, '*.desktop'))):\n" +
-            "        cp = configparser.RawConfigParser(strict=False, interpolation=None)\n" +
-            "        try:\n" +
-            "            cp.read(f, encoding='utf-8')\n" +
-            "        except Exception:\n" +
-            "            continue\n" +
-            "        if 'Desktop Entry' not in cp:\n" +
-            "            continue\n" +
-            "        de = cp['Desktop Entry']\n" +
-            "        if de.get('NoDisplay', '').lower() == 'true':\n" +
-            "            continue\n" +
-            "        if de.get('Hidden', '').lower() == 'true':\n" +
-            "            continue\n" +
-            "        if de.get('Type', 'Application').strip() != 'Application':\n" +
-            "            continue\n" +
-            "        name = de.get('Name', '').strip()\n" +
-            "        if not name:\n" +
-            "            continue\n" +
-            "        key = name.lower()\n" +
-            "        if key in seen:\n" +
-            "            continue\n" +
-            "        seen.add(key)\n" +
-            "        comment = de.get('Comment', '').strip()\n" +
-            "        keywords = de.get('Keywords', '').strip().replace(';', ' ')\n" +
-            "        categories = de.get('Categories', '').strip().replace(';', ' ')\n" +
-            "        exe = rx.sub('', de.get('Exec', '').strip()).strip()\n" +
-            "        if not exe:\n" +
-            "            continue\n" +
-            "        icon = de.get('Icon', '').strip()\n" +
-            "        gname = de.get('GenericName', '').strip()\n" +
-            "        def s(x):\n" +
-            "            return x.replace('\\t', ' ').replace('\\n', ' ').replace('\\r', ' ')\n" +
-            "        out.append('\\t'.join([s(name), s(comment), s(keywords), s(categories), s(exe), s(icon), s(gname)]))\n" +
-            "sys.stdout.write('\\n'.join(out))\n"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const lines = this.text.split("\n").filter(s => s.length > 0);
-                const apps = new Array(lines.length);
-                let n = 0;
-                for (let i = 0; i < lines.length; i++) {
-                    const p = lines[i].split("\t");
-                    if (p.length < 7) continue;
-                    apps[n++] = {
-                        title: p[0],
-                        comment: p[1],
-                        keywords: (p[2] + " " + p[3] + " " + p[6] + " " + p[1]).toLowerCase(),
-                        category: "App",
-                        icon: "󰀻",
-                        exec: p[4],
-                        rawIcon: p[5]
-                    };
-                }
-                apps.length = n;
-                const annotated = root.annotate(apps);
-                root.apps = annotated;
-                root.allItems = root.omarchy.concat(annotated);
-                root.appsLoaded = true;
-            }
-        }
-    }
-
-    // ---------- Category navigators ----------
-    // Synthetic rows that appear at root level. Activating one filters the
-    // list to that category instead of executing a command. `target` is the
-    // category string to match; "App" is the bucket all .desktop entries
-    // land in.
-    readonly property var categoryNav: [
-        { title: "Apps",    icon: "󰀻", category: "Browse", isCategory: true, target: "App",     keywords: "apps applications launcher programs software desktop" },
-        { title: "Files",   icon: "󰉋", category: "Browse", isCategory: true, target: root.fileCategory, keywords: "files file search find folder browse path open image picture document text fd" },
-        { title: "GitHub",  icon: "󰊤", category: "Browse", isCategory: true, target: root.ghCategory,   keywords: "github gh repo repository search code clone star issue pull request pr open source git" },
-        { title: "Style",   icon: "󰏘", category: "Browse", isCategory: true, target: "Style",   keywords: "style theme appearance look font background corners waybar screensaver" },
-        { title: "Setup",   icon: "󰒓", category: "Browse", isCategory: true, target: "Setup",   keywords: "setup config audio wifi bluetooth power monitors keybindings defaults dns security" },
-        { title: "Install", icon: "󰏗", category: "Browse", isCategory: true, target: "Install", keywords: "install add package aur webapp tui service style dev editor terminal browser ai gaming" },
-        { title: "Remove",  icon: "󰆴", category: "Browse", isCategory: true, target: "Remove",  keywords: "remove uninstall delete package webapp tui theme browser gaming dev preinstalls" },
-        { title: "Update",  icon: "󰚰", category: "Browse", isCategory: true, target: "Update",  keywords: "update upgrade omarchy channel themes process hardware firmware password timezone time" },
-        { title: "System",  icon: "󰐥", category: "Browse", isCategory: true, target: "System",  keywords: "system lock suspend hibernate logout restart reboot shutdown power" },
-        { title: "Toggle",  icon: "󰨚", category: "Browse", isCategory: true, target: "Toggle",  keywords: "toggle screensaver nightlight idle notifications bar layout gaps scaling sudo touchpad" },
-        { title: "Trigger", icon: "󰚥", category: "Browse", isCategory: true, target: "Trigger", keywords: "trigger reminder transcode capture share toggle hardware" },
-        { title: "Capture", icon: "󰄀", category: "Browse", isCategory: true, target: "Capture", keywords: "capture screenshot screenrecord ocr text extraction color picker" },
-        { title: "Share",   icon: "󰒖", category: "Browse", isCategory: true, target: "Share",   keywords: "share clipboard file folder receive localsend send transfer" },
-        { title: "Learn",   icon: "󰂺", category: "Browse", isCategory: true, target: "Learn",   keywords: "learn docs manual help keybindings wiki cheatsheet" }
-    ]
 
     // ---------- Icon resolution ----------
     // `.desktop` Icon field is either an absolute path or an icon-theme
@@ -512,23 +162,6 @@ ShellRoot {
     }
 
     // ---------- Search index annotation ----------
-    // Builds an annotated copy of `items` with lowercased searchable fields
-    // attached as `_t/_k/_c`. Done once at startup (and once after the .desktop
-    // scan completes) so the per-keystroke scoring loop doesn't lowercase
-    // hundreds of strings per character of input.
-    function annotate(items) {
-        const out = new Array(items.length);
-        for (let i = 0; i < items.length; i++) {
-            const it = items[i];
-            out[i] = Object.assign({}, it, {
-                _t: (it.title || "").toLowerCase(),
-                _k: (it.keywords || "").toLowerCase(),
-                _c: (it.category || "").toLowerCase()
-            });
-        }
-        return out;
-    }
-
     // Annotated indexes. Assigned in Component.onCompleted and in the
     // appScan handler so they stay plain `var` assignments rather than
     // re-evaluating bindings whose dependency graph would re-allocate the
@@ -570,250 +203,11 @@ ShellRoot {
         root.close();
     }
 
-    // ---------- File search (fd) ----------
-    // fd does the heavy lifting: smart-case substring/regex matching,
-    // .gitignore + global-ignore awareness, hidden-file skip. We layer on
-    // an explicit exclude list for build dirs that aren't always
-    // gitignored, scope it to $HOME, and cap results so the list stays
-    // snappy on noisy queries.
-    function basename(p) {
-        const s = p.lastIndexOf("/");
-        return s >= 0 ? p.substring(s + 1) : p;
-    }
-    function dirname(p) {
-        const s = p.lastIndexOf("/");
-        return s >= 0 ? p.substring(0, s) : "";
-    }
-    function tildify(p) {
-        return (p.indexOf(root.homeDir) === 0)
-            ? "~" + p.substring(root.homeDir.length)
-            : p;
-    }
-    function openUrl(url) {
-        return "xdg-open " + JSON.stringify(url);
-    }
 
-    function buildFdArgs(tokens) {
-        const args = ["--type", "f", "--max-results", "200"];
-        const excludes = root.fdExcludes;
-        for (let i = 0; i < excludes.length; i++) {
-            args.push("--exclude");
-            args.push(excludes[i]);
-        }
-        // Join tokens with `.*` for fzf-style gap matching: "img wall"
-        // -> "img.*wall" finds "img-wallpaper.png".
-        args.push(tokens.join(".*"));
-        args.push(root.homeDir);
-        return args;
-    }
 
-    Process {
-        id: fdProc
-        running: false
-        command: ["fd"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const lines = this.text.split("\n").filter(s => s.length > 0);
-                const out = new Array(lines.length);
-                for (let i = 0; i < lines.length; i++) {
-                    const path = lines[i];
-                    const dirShort = root.tildify(root.dirname(path));
-                    out[i] = {
-                        title: root.basename(path),
-                        comment: dirShort,
-                        keywords: "",
-                        category: dirShort,
-                        icon: root.fileIcon(path),
-                        path: path,
-                        exec: root.openUrl(path),
-                        rawCategory: true
-                    };
-                }
-                root.fileItems = out;
-                root.selectedIndex = Math.max(0, Math.min(root.selectedIndex,
-                                                          out.length - 1));
-                root.updatePreview();
-            }
-        }
-    }
-
-    Timer {
-        id: fdDebounce
-        interval: 120
-        repeat: false
-        onTriggered: {
-            const tokens = root.queryTokens;
-            if (!root.fileMode || tokens.length === 0) {
-                root.fileItems = [];
-                root.updatePreview();
-                return;
-            }
-            fdProc.command = ["fd"].concat(root.buildFdArgs(tokens));
-            fdProc.running = false;
-            fdProc.running = true;
-        }
-    }
-
-    // ---------- GitHub search (gh) ----------
-    // Shell short-circuit returns "ok" only when gh exists AND has a usable
-    // token — drives off exit codes, not stdout parsing, so it survives gh
-    // localizing or rephrasing "Logged in".
-    Process {
-        id: ghAuthProc
-        running: false
-        command: ["sh", "-c", "command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 && echo ok || true"]
-        stdout: StdioCollector {
-            onStreamFinished: { root.ghReady = this.text.indexOf("ok") >= 0; }
-        }
-    }
-
-    // 350ms debounce — slower than fd's 120ms because each keystroke
-    // costs an HTTP round-trip to the GitHub search API, and the
-    // rate-limit budget is per-token, not per-process.
-    Timer {
-        id: ghDebounce
-        interval: 350
-        repeat: false
-        onTriggered: {
-            const q = root.query.trim();
-            if (!root.ghMode || q.length === 0) {
-                root.ghItems = [];
-                return;
-            }
-            ghProc.command = ["gh", "search", "repos", q,
-                              "--json", "fullName,description,url,stargazersCount,language",
-                              "--limit", "25"];
-            ghProc.running = false;
-            ghProc.running = true;
-        }
-    }
-
-    function formatStars(n) {
-        if (n >= 1000000) return (n / 1000000).toFixed(1) + "m";
-        if (n >= 1000)    return (n / 1000).toFixed(1) + "k";
-        return "" + n;
-    }
-
-    Process {
-        id: ghProc
-        running: false
-        command: ["gh"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let arr = [];
-                try { arr = JSON.parse(this.text || "[]"); } catch (_) { arr = []; }
-                const out = new Array(arr.length);
-                for (let i = 0; i < arr.length; i++) {
-                    const r = arr[i];
-                    const lang = r.language ? "  ·  " + r.language : "";
-                    out[i] = {
-                        title: r.fullName,
-                        comment: r.description || "",
-                        keywords: "",
-                        category: "★ " + root.formatStars(r.stargazersCount || 0) + lang,
-                        icon: "󰊤",
-                        path: r.url,
-                        exec: root.openUrl(r.url),
-                        rawCategory: true
-                    };
-                }
-                root.ghItems = out;
-                root.selectedIndex = Math.max(0, Math.min(root.selectedIndex,
-                                                          out.length - 1));
-                root.updateGhPreview();
-            }
-        }
-    }
-
-    // Two Processes so text and metadata sinks can be staged without
-    // racing on a shared body property. Each is restarted via running
-    // false→true on selection change.
-    Process {
-        id: textPreviewProc
-        running: false
-        command: ["true"]
-        stdout: StdioCollector {
-            onStreamFinished: { root.previewText = this.text; }
-        }
-    }
-    Process {
-        id: metaPreviewProc
-        running: false
-        command: ["true"]
-        stdout: StdioCollector {
-            onStreamFinished: { root.previewMeta = this.text; }
-        }
-    }
-    Process {
-        id: readmeProc
-        running: false
-        command: ["true"]
-        stdout: StdioCollector {
-            onStreamFinished: { root.previewReadme = this.text || "NO README"; }
-        }
-    }
-
-    function fileExt(path) {
-        const name = root.basename(path);
-        const dot = name.lastIndexOf(".");
-        if (dot <= 0) return name.toLowerCase(); // dotless name (Makefile)
-        return name.substring(dot + 1).toLowerCase();
-    }
-
-    function updatePreview() {
-        if (root.ghMode) { root.updateGhPreview(); return; }
-        const it = root.fileMode ? root.filteredItems[root.selectedIndex] : null;
-        const path = (it && it.path) || "";
-        if (path === root.previewPath) return;
-        root.previewPath = path;
-        root.previewText = "";
-        root.previewMeta = "";
-        if (!path) return;
-        const kind = root.previewKind;
-        if (kind === "text") {
-            root.previewText = "Loading…";
-            textPreviewProc.command = ["head", "-c", "8192", path];
-            textPreviewProc.running = false;
-            textPreviewProc.running = true;
-        } else if (kind === "meta") {
-            root.previewMeta = "Loading…";
-            // Positional $1 keeps the path argv-safe; embedding it in the
-            // -c script would let `$`/backticks in filenames expand.
-            metaPreviewProc.command = ["sh", "-c",
-                "stat -c 'SIZE   %s bytes\nMTIME  %y' \"$1\" 2>/dev/null; "
-                + "printf 'MIME   '; file -b --mime-type \"$1\" 2>/dev/null",
-                "sh", path];
-            metaPreviewProc.running = false;
-            metaPreviewProc.running = true;
-        }
-    }
-
-    function updateGhPreview() {
-        const it = root.filteredItems[root.selectedIndex];
-        const url = (it && it.path) || "";
-        if (url === root.previewRepoUrl) return;
-        root.previewRepoUrl = url;
-        root.previewRepo = (it && it.title) || "";
-        root.previewReadme = "";
-        if (!url || !it.title) return;
-        root.previewReadme = "Loading…";
-        // gh api prints its 404 error body to stdout, so a naive pipe
-        // would leak `{"message":"Not Found"...}` into the preview.
-        // Capture first, only emit on exit success.
-        readmeProc.command = ["sh", "-c",
-            "out=$(gh api repos/\"$1\"/readme -H 'Accept: application/vnd.github.raw' 2>/dev/null) && printf '%s' \"$out\" | head -c 8192 || true",
-            "sh", it.title];
-        readmeProc.running = false;
-        readmeProc.running = true;
-    }
-
-    onQueryChanged: {
-        if (root.fileMode) fdDebounce.restart();
-        if (root.ghMode)   ghDebounce.restart();
-    }
-    onSelectedIndexChanged: {
-        if (root.fileMode || root.ghMode) root.updatePreview();
-    }
+    // FileSearch and GhSearch both react to query/selectedItem changes
+    // internally via their `query` and `selectedItem` bindings, so the
+    // shell doesn't have to forward anything explicitly anymore.
 
     // ---------- Search ----------
     // Each query token must match somewhere in the item for the item to
@@ -849,7 +243,7 @@ ShellRoot {
     // auth probe finishes.
     readonly property var navRows: root.ghReady
         ? root.nav
-        : root.nav.filter(it => it.target !== root.ghCategory)
+        : root.nav.filter(it => it.target !== Data.ghCategory)
 
     readonly property var filteredItems: {
         // File and GitHub modes are their own worlds: fd and gh already
@@ -912,11 +306,9 @@ ShellRoot {
     }
 
     Component.onCompleted: {
-        root.omarchy = root.annotate(root.omarchyItems);
-        root.nav     = root.annotate(root.categoryNav);
+        root.omarchy = Data.annotate(Data.omarchyItems);
+        root.nav     = Data.annotate(Data.categoryNav);
         root.allItems = root.omarchy.slice();
-        appScan.running = true;
-        ghAuthProc.running = true;
     }
 
     // ---------- IPC ----------
@@ -925,7 +317,7 @@ ShellRoot {
         function toggle(): void { root.toggle() }
         function open(): void { root.open() }
         function close(): void { root.close() }
-        function refresh(): void { appScan.running = false; appScan.running = true; }
+        function refresh(): void { appScan.refresh(); }
     }
 
     // ---------- Idle self-exit ----------
@@ -1406,7 +798,7 @@ ShellRoot {
                             anchors.right: parent.right
                             text: root.ghMode
                                   ? root.previewRepo
-                                  : (root.previewPath ? root.basename(root.previewPath) : "")
+                                  : (root.previewPath ? Data.basename(root.previewPath) : "")
                             color: root.ink
                             font.family: root.mono
                             font.pixelSize: 13
@@ -1424,7 +816,7 @@ ShellRoot {
                             anchors.right: parent.right
                             text: root.ghMode
                                   ? root.previewRepoUrl
-                                  : (root.previewPath ? root.tildify(root.dirname(root.previewPath)) : "")
+                                  : (root.previewPath ? Data.tildify(Data.dirname(root.previewPath), root.homeDir) : "")
                             color: root.sumi
                             font.family: root.mono
                             font.pixelSize: 10
