@@ -480,9 +480,14 @@ ShellRoot {
                                         : total + " FILE" + (total === 1 ? "" : "S");
                                 }
                                 if (root.ghMode) {
-                                    if (root.query.length === 0) return "TYPE TO SEARCH GITHUB";
-                                    if (root.ghRunning) return "SEARCHING GITHUB…";
                                     const total = root.filteredItems.length;
+                                    if (root.query.length === 0) {
+                                        if (root.ghRunning && total === 0) return "LOADING PRS…";
+                                        return total === 0
+                                            ? "NO OPEN PRS"
+                                            : total + " OPEN PR" + (total === 1 ? "" : "S");
+                                    }
+                                    if (root.ghRunning) return "SEARCHING GITHUB…";
                                     return total === 0
                                         ? "NO REPOS MATCH"
                                         : total + " REPO" + (total === 1 ? "" : "S");
@@ -507,7 +512,7 @@ ShellRoot {
                         anchors.verticalCenter: parent.verticalCenter
                         text: root.categoryFilter === ""
                               ? "↑↓ / TAB  ·  ↵ OPEN  ·  ESC CLOSE"
-                              : "↑↓ / TAB  ·  ↵ " + (root.fileMode ? "OPEN FILE" : (root.ghMode ? "OPEN REPO" : "RUN")) + "  ·  ESC BACK"
+                              : "↑↓ / TAB  ·  ↵ " + (root.fileMode ? "OPEN FILE" : (root.ghMode ? "OPEN" : "RUN")) + "  ·  ESC BACK"
                         color: root.sumi
                         font.family: root.mono
                         font.pixelSize: 10
@@ -543,7 +548,7 @@ ShellRoot {
                               ? (root.fileMode
                                  ? "Type to search files in ~ …"
                                  : root.ghMode
-                                    ? "Type to search GitHub repos …"
+                                    ? "Your PRs · type to search GitHub repos"
                                     : "Type to search apps, themes, settings…")
                               : root.query
                         color: root.query.length === 0 ? root.sumi : root.ink
@@ -758,7 +763,9 @@ ShellRoot {
                                     return "NO FILES MATCH";
                                 }
                                 if (root.ghMode) {
-                                    if (root.query.length === 0) return "TYPE TO SEARCH GITHUB";
+                                    if (root.query.length === 0) {
+                                        return root.ghRunning ? "LOADING PRS…" : "NO OPEN PRS";
+                                    }
                                     if (root.ghRunning) return "SEARCHING GITHUB…";
                                     return "NO REPOS MATCH";
                                 }
