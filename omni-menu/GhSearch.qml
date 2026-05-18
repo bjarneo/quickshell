@@ -2,10 +2,11 @@ import QtQuick
 import Quickshell.Io
 import "Data.js" as Data
 
-// gh CLI-backed repo search + README preview. Owns the auth probe, the
-// search debounce/proc, the readme fetch proc, and the preview state.
-// Parent shell binds `query`/`active`/`selectedItem` and reads `items`,
-// `running`, `ready`, and the preview properties.
+// gh CLI-backed repo search + README preview. Owns the auth probe, an
+// identity probe (your login + your orgs), two parallel search procs
+// (scoped to your namespace + broad), the readme fetch proc, and the
+// preview state. Parent shell binds `query`/`active`/`selectedItem`
+// and reads `items`, `running`, `ready`, and the preview properties.
 Item {
     id: ghSearch
 
@@ -18,14 +19,74 @@ Item {
     property string previewRepo: ""
     property string previewRepoUrl: ""
     property string previewReadme: ""
-    readonly property bool running: ghProc.running
+    readonly property bool running: ghScopedProc.running || ghBroadProc.running
+
+    // Identity, learned once at startup from `gh api user` / `gh api user/orgs`.
+    // Used to bias search results — your repos and your orgs' repos come
+    // first, then everything else.
+    property string userLogin: ""
+    property var userOrgs: []
+    readonly property string ownerFilter: ghSearch.userLogin
+        ? [ghSearch.userLogin].concat(ghSearch.userOrgs).join(",")
+        : ""
+
+    // Raw search results keyed by which proc produced them. mergeItems
+    // joins the two with the scope priority (you > your orgs > the world).
+    property var scopedResults: []
+    property var broadResults: []
 
     function clear() {
         ghSearch.items = [];
+        ghSearch.scopedResults = [];
+        ghSearch.broadResults = [];
         ghSearch.previewRepo = "";
         ghSearch.previewRepoUrl = "";
         ghSearch.previewReadme = "";
         ghDebounce.stop();
+    }
+
+    function toItem(r) {
+        const lang = r.language ? "  ·  " + r.language : "";
+        return {
+            title: r.fullName,
+            comment: r.description || "",
+            keywords: "",
+            category: "★ " + Data.formatStars(r.stargazersCount || 0) + lang,
+            icon: "󰊤",
+            path: r.url,
+            exec: Data.openUrl(r.url),
+            rawCategory: true
+        };
+    }
+
+    // Within scoped, your own repos rank above your orgs'; broad fills in
+    // after with duplicates filtered by URL.
+    function mergeItems() {
+        const seen = {};
+        const out = [];
+        const userPrefix = ghSearch.userLogin ? ghSearch.userLogin + "/" : "";
+        const scoped = ghSearch.scopedResults;
+        for (let i = 0; i < scoped.length; i++) {
+            if (userPrefix && scoped[i].fullName.indexOf(userPrefix) === 0) {
+                seen[scoped[i].url] = true;
+                out.push(ghSearch.toItem(scoped[i]));
+            }
+        }
+        for (let i = 0; i < scoped.length; i++) {
+            if (!seen[scoped[i].url]) {
+                seen[scoped[i].url] = true;
+                out.push(ghSearch.toItem(scoped[i]));
+            }
+        }
+        const broad = ghSearch.broadResults;
+        for (let i = 0; i < broad.length; i++) {
+            if (!seen[broad[i].url]) {
+                seen[broad[i].url] = true;
+                out.push(ghSearch.toItem(broad[i]));
+            }
+        }
+        ghSearch.items = out;
+        ghSearch.updatePreview();
     }
 
     function updatePreview() {
@@ -61,7 +122,33 @@ Item {
         running: false
         command: ["sh", "-c", "command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 && echo ok || true"]
         stdout: StdioCollector {
-            onStreamFinished: { ghSearch.ready = this.text.indexOf("ok") >= 0; }
+            onStreamFinished: {
+                ghSearch.ready = this.text.indexOf("ok") >= 0;
+                if (ghSearch.ready) {
+                    identityProc.running = false;
+                    identityProc.running = true;
+                }
+            }
+        }
+    }
+
+    // Fetches login + org list once after auth confirms. Failures leave
+    // identity empty and the search falls back to broad-only.
+    Process {
+        id: identityProc
+        running: false
+        command: ["sh", "-c",
+            "gh api user --jq .login 2>/dev/null; "
+            + "gh api user/orgs --jq 'map(.login)|join(\",\")' 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const lines = this.text.split("\n");
+                ghSearch.userLogin = (lines[0] || "").trim();
+                const orgsLine = (lines[1] || "").trim();
+                ghSearch.userOrgs = orgsLine
+                    ? orgsLine.split(",").filter(s => s.length > 0)
+                    : [];
+            }
         }
     }
 
@@ -75,42 +162,55 @@ Item {
         onTriggered: {
             const q = ghSearch.query.trim();
             if (!ghSearch.active || q.length === 0) {
+                ghSearch.scopedResults = [];
+                ghSearch.broadResults = [];
                 ghSearch.items = [];
                 return;
             }
-            ghProc.command = ["gh", "search", "repos", q,
-                              "--json", "fullName,description,url,stargazersCount,language",
-                              "--limit", "25"];
-            ghProc.running = false;
-            ghProc.running = true;
+            // Scoped: only fires when identity probe filled the owner
+            // filter. Empty -> just broad, no API call wasted.
+            if (ghSearch.ownerFilter) {
+                ghScopedProc.command = ["gh", "search", "repos", q,
+                                        "--owner", ghSearch.ownerFilter,
+                                        "--json", "fullName,description,url,stargazersCount,language",
+                                        "--limit", "10"];
+                ghScopedProc.running = false;
+                ghScopedProc.running = true;
+            } else {
+                ghSearch.scopedResults = [];
+            }
+            ghBroadProc.command = ["gh", "search", "repos", q,
+                                   "--json", "fullName,description,url,stargazersCount,language",
+                                   "--limit", "20"];
+            ghBroadProc.running = false;
+            ghBroadProc.running = true;
         }
     }
 
+    function parseResults(text) {
+        try { return JSON.parse(text || "[]"); } catch (_) { return []; }
+    }
+
     Process {
-        id: ghProc
+        id: ghScopedProc
         running: false
         command: ["gh"]
         stdout: StdioCollector {
             onStreamFinished: {
-                let arr = [];
-                try { arr = JSON.parse(this.text || "[]"); } catch (_) { arr = []; }
-                const out = new Array(arr.length);
-                for (let i = 0; i < arr.length; i++) {
-                    const r = arr[i];
-                    const lang = r.language ? "  ·  " + r.language : "";
-                    out[i] = {
-                        title: r.fullName,
-                        comment: r.description || "",
-                        keywords: "",
-                        category: "★ " + Data.formatStars(r.stargazersCount || 0) + lang,
-                        icon: "󰊤",
-                        path: r.url,
-                        exec: Data.openUrl(r.url),
-                        rawCategory: true
-                    };
-                }
-                ghSearch.items = out;
-                ghSearch.updatePreview();
+                ghSearch.scopedResults = ghSearch.parseResults(this.text);
+                ghSearch.mergeItems();
+            }
+        }
+    }
+
+    Process {
+        id: ghBroadProc
+        running: false
+        command: ["gh"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                ghSearch.broadResults = ghSearch.parseResults(this.text);
+                ghSearch.mergeItems();
             }
         }
     }
