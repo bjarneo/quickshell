@@ -408,7 +408,7 @@ PanelWindow {
                 root: bar.root
                 glyph: bar.root.edgeArrow()
                 tooltip: "Move bar"
-                color: bar.root.sumi
+                color: bar.root.inkDeep
                 fontSize: 12
                 onActivated: bar.root.cycleBarEdge()
             }
