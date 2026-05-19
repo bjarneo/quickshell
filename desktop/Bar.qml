@@ -77,6 +77,7 @@ PanelWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter:   parent.verticalCenter
             z: 10
+            Component.onCompleted: bar.root.calendarAnchorItem = clockItem
 
             implicitWidth:  bar.root.isHorizontal
                             ? clockOneLine.implicitWidth + 14
@@ -145,7 +146,6 @@ PanelWindow {
                 onClicked: {
                     clockTipDelay.stop();
                     bar.root.hideTooltip("Calendar");
-                    bar.root.anchorPopupTo(clockItem);
                     if (bar.root.calendarVisible) bar.root.calendarVisible = false;
                     else bar.root.openCalendar();
                 }
@@ -200,7 +200,9 @@ PanelWindow {
             // Pop-up / overlay openers sit on the inside of the right
             // cluster — weather, display tweaks, screenshots browser.
             Module {
+                id: weatherMod
                 root: bar.root
+                Component.onCompleted: bar.root.weatherAnchorItem = weatherMod
                 // Muted middle dot stands in until the first wttr fetch
                 // lands; a "?" marks an unreachable network.
                 glyph: bar.root.weatherUnavailable ? "?"
@@ -235,7 +237,9 @@ PanelWindow {
             }
 
             Module {
+                id: displayMod
                 root: bar.root
+                Component.onCompleted: bar.root.displayAnchorItem = displayMod
                 // Nerd Font mdi-monitor (U+F0379). Left-click opens the
                 // display popup (warmth / brightness / gamma / monitor
                 // tweaks); right-click jumps straight to a reset.

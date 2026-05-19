@@ -101,6 +101,13 @@ Item {
     property real popupAnchorX: 0
     property real popupAnchorY: 0
 
+    // Bar registers its trigger Items here so openCalendar/Weather/Display
+    // can re-anchor on every open — including IPC opens from OmniMenu that
+    // don't go through a click handler.
+    property Item calendarAnchorItem: null
+    property Item weatherAnchorItem:  null
+    property Item displayAnchorItem:  null
+
     function anchorPopupTo(item) {
         const p = item.mapToItem(null, item.width / 2, item.height / 2);
         root.popupAnchorX = p.x;
@@ -495,6 +502,7 @@ Item {
     }
 
     function openCalendar() {
+        if (root.calendarAnchorItem) root.anchorPopupTo(root.calendarAnchorItem);
         root.calendarMonthOffset = 0;
         root.calendarTick++;
         root.selectedDay = (new Date()).getDate();
@@ -537,6 +545,7 @@ Item {
         + "      done; }; "
 
     function openDisplay() {
+        if (root.displayAnchorItem) root.anchorPopupTo(root.displayAnchorItem);
         displayProbe.running = true;
         root.displayRow = 0;
         root.displayVisible = true;
@@ -700,7 +709,10 @@ Item {
         return (v > 0 ? "+" : "") + v + "°";
     }
 
-    function openWeather() { root.weatherVisible = true; }
+    function openWeather() {
+        if (root.weatherAnchorItem) root.anchorPopupTo(root.weatherAnchorItem);
+        root.weatherVisible = true;
+    }
     function refreshWeather() { weatherProbe.running = false; weatherProbe.running = true; }
     function editWeatherLocation() {
         root.run("mkdir -p \"$(dirname " + JSON.stringify(root.weatherLocationPath) + ")\""

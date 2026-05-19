@@ -65,7 +65,6 @@ Item {
         onClicked: (e) => {
             tipDelay.stop();
             modItem.root.hideTooltip(modItem.tooltip);
-            modItem.root.anchorPopupTo(modItem);
             if (e.button === Qt.RightButton) modItem.rightActivated();
             else modItem.activated();
         }
