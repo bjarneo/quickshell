@@ -3,13 +3,9 @@ import Quickshell
 import Quickshell.Io
 import "Palette.js" as Palette
 
-// Live palette from omarchy's colors.toml. Startup reads the file once;
-// every subsequent swap arrives as a JSON payload via `theme apply` IPC,
-// pushed by ~/.config/omarchy/hooks/theme-set. See desktop/README.md.
-//
-// `seal` rides a `driftAmount` saturation bump on every reload (200ms
-// rise, 2.8s taper) so a theme swap reads as a deliberate breath. The
-// 1.55s lead-in lets theme-wash's animation exit first.
+// `seal` rides `driftAmount` (200ms rise, 2.8s taper) so each theme swap
+// reads as a breath rather than a hard cut. The 1.55s lead-in lets
+// theme-wash's animation exit first.
 Item {
     id: theme
 
@@ -41,6 +37,11 @@ Item {
     readonly property color sep:    Qt.rgba(ink.r, ink.g, ink.b, 0.18)
     readonly property color rowHi:  Qt.rgba(ink.r, ink.g, ink.b, 0.06)
     readonly property color rowSel: Qt.rgba(seal.r, seal.g, seal.b, 0.18)
+
+    // Name of the last theme applied via IPC. Used to suppress the drift
+    // animation when the hook pushes the same theme twice or races the
+    // startup FileView read.
+    property string lastAppliedName: ""
 
     // watchChanges: false — `omarchy theme set` does an atomic rm+mv on
     // the theme dir, which would race an inotify watch. The hook tells us
@@ -77,18 +78,17 @@ Item {
 
     IpcHandler {
         target: "theme"
-        // Push path: hook parses colors.toml and ships the result here as a
-        // JSON string. Payload shape: { name: "<theme>", colors: { rawKey: hex, ... } }
         function apply(payload: string): void {
-            try {
-                const p = JSON.parse(payload);
-                if (p && p.colors) {
-                    Palette.apply(theme, Palette.mapKeys(p.colors));
-                    driftDelay.restart();
-                }
-            } catch (_) {}
+            let p;
+            try { p = JSON.parse(payload); }
+            catch (e) { console.warn("theme.apply: bad payload —", e); return; }
+            if (!p || !p.colors) return;
+            Palette.apply(theme, Palette.mapKeys(p.colors));
+            if (p.name && p.name !== theme.lastAppliedName) {
+                theme.lastAppliedName = p.name;
+                driftDelay.restart();
+            }
         }
-        // Manual rescue: re-read colors.toml from disk and apply.
         function reload(): void {
             paletteFile.reload();
             driftDelay.restart();

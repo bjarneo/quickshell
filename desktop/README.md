@@ -150,8 +150,6 @@ if [ -n "$payload" ]; then
 fi
 ```
 
-The DBus signal carries the parsed palette in one `string` argument. The Quickshell IPC delivers the same payload to the in-shell desktop, which `JSON.parse`s it and applies the colours without touching the file. Both lines no-op silently when the desktop isn't running.
-
 On apply, `seal` saturation rides a 200ms rise and 2.8s taper (`driftDelay` + `driftAnim` in `Theme.qml`), so a theme swap reads as a deliberate breath rather than a hard cut.
 
 ### Payload shape
@@ -173,13 +171,12 @@ On apply, `seal` saturation rides a 200ms rise and 2.8s taper (`driftDelay` + `d
 }
 ```
 
-`colors` is the full set of `key = "value"` pairs from the active `colors.toml` (typically ~22 keys: `background`, `foreground`, `accent`, `cursor`, `selection_foreground`, `selection_background`, `color0..color15`). Consumers pick the keys they care about.
+`colors` is every `key = "value"` pair from the active `colors.toml` (typically ~22: `background`, `foreground`, `accent`, `cursor`, `selection_foreground`, `selection_background`, `color0..color15`).
 
 ### External listeners
 
-Any process can subscribe directly. `dbus-monitor` in default mode prints the payload as a quoted JSON string:
-
 ```sh
+# sed strips dbus-monitor's `string "..."` wrapper from the arg line.
 dbus-monitor --session "type='signal',interface='org.omarchy.Theme',member='Changed'" \
   | grep --line-buffered '"name"' \
   | sed -u 's/^[[:space:]]*string "//; s/"$//' \

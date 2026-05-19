@@ -1,15 +1,8 @@
 .pragma library
 
-// Two parsing layers and a key-translation layer for omarchy's colors.toml.
-//
-// parseAll(text) -> { rawKey: hex } — every `key = "value"` line, no filter.
-//                                     Used by Themes.qml for swatch rows.
-// mapKeys(raw)   -> { semanticSlot: hex } — picks the six keys this shell
-//                                           uses and renames them. The hook
-//                                           emits raw keys; Theme.qml's
-//                                           apply() path runs this first.
-// parse(text)    -> mapKeys(parseAll(text)) — convenience for FileView reads.
-
+// WANTED is the single source of truth for which raw colors.toml keys map
+// onto this shell's semantic slots. Both the startup FileView read and the
+// IPC push path translate through it.
 const WANTED = {
     background: "paper",
     foreground: "ink",
