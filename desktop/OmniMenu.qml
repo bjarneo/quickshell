@@ -651,11 +651,12 @@ Item {
 
             focus: root.visible_
             Keys.onPressed: function(event) {
-                // hjkl → arrow translation (Vim-style nav). Applied only
-                // when the typed query is empty so the letters still
-                // reach the query buffer when the user is actually
-                // typing in the main palette. In quickMode there is no
-                // typing buffer, so hjkl always maps.
+                // hjkl → arrow translation (Vim-style nav). Only active
+                // in quickMode, where there is no typing buffer and the
+                // tile grid is the sole input surface. In the main omni
+                // search h/j/k/l are letters first; remapping them — even
+                // conditionally on empty query — surprised users who
+                // expected to start typing immediately.
                 const _hjklMap = {};
                 _hjklMap[Qt.Key_H] = Qt.Key_Left;
                 _hjklMap[Qt.Key_J] = Qt.Key_Down;
@@ -663,7 +664,7 @@ Item {
                 _hjklMap[Qt.Key_L] = Qt.Key_Right;
                 const _wrap = (e) => {
                     if (_hjklMap[e.key] === undefined) return e;
-                    if (!root.quickMode && root.query.length > 0) return e;
+                    if (!root.quickMode) return e;
                     return { key: _hjklMap[e.key], modifiers: e.modifiers, text: e.text };
                 };
                 const e2 = _wrap(event);
