@@ -85,7 +85,10 @@ Item {
     // to nav telemetry for instantaneous state; clicking one drops an
     // expanded detail panel below the grid with that tile's adjustments.
     readonly property bool quickMode: root.categoryFilter === "Quick"
-    readonly property int  quickGridCols: 4
+    // Tile layout flips to a single-column strip when a tile is expanded
+    // so the detail panel can take the full left half of the card. The
+    // 4-col grid is the default for the unexpanded glance view.
+    readonly property int  quickGridCols: (root.quickMode && root.expandedTile !== null) ? 1 : 4
     // null = no expansion; otherwise the tile object whose detail panel
     // is currently revealed under the grid.
     property var expandedTile: null
@@ -623,16 +626,12 @@ Item {
             y: parent.height * 0.18
             // Wide in any preview-bearing mode (file, github, processes,
             // themes) so a ~520px preview pane fits next to the result
-            // list; narrow back to 640 elsewhere so apps and omarchy
-            // mode keep their compact feel.
-            // Quick mode shares OmniMenu's default 640 width when no tile
-            // is expanded, and widens to fit the side-by-side detail
-            // panel when one is.
-            width: root.previewActive
-                   ? 1000
-                   : root.quickMode && root.expandedTile !== null
-                       ? 1040
-                       : 640
+            // list; narrow 640 elsewhere — including Quick mode whether
+            // collapsed or expanded — so opening a tile doesn't cause any
+            // horizontal jump. The tile column compresses to 64px on the
+            // left of the same 640 card, leaving ~509px for the detail
+            // panel.
+            width: root.previewActive ? 1000 : 640
             Behavior on width {
                 NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
             }
@@ -911,12 +910,17 @@ Item {
                 Item {
                     id: quickGrid
                     visible: root.quickMode
-                    anchors.left: parent.left
+                    // Collapsed: fill the card from the left. Expanded:
+                    // compress to a narrow column on the left edge so the
+                    // detail panel gets the wider right half.
+                    readonly property bool colMode: root.expandedTile !== null
                     anchors.top: parent.top
-                    width: root.expandedTile !== null ? 380 : parent.width
-                    // Auto-size to content: 4-col grid of fixed-height tiles.
-                    readonly property int tileH: 86
-                    readonly property int spacing: 10
+                    anchors.left: parent.left
+                    width: colMode ? 64 : parent.width
+                    // Auto-size to content: 4-col grid full-width, or a
+                    // single compact column when colMode swaps in.
+                    readonly property int tileH: colMode ? 42 : 86
+                    readonly property int spacing: colMode ? 4 : 10
                     readonly property int rows: visible
                         ? Math.ceil(root.filteredQuickTiles.length / root.quickGridCols)
                         : 0
@@ -958,15 +962,15 @@ Item {
 
                                 Column {
                                     anchors.fill: parent
-                                    anchors.margins: 8
-                                    spacing: 3
+                                    anchors.margins: quickGrid.colMode ? 3 : 8
+                                    spacing: quickGrid.colMode ? 0 : 3
 
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         text: tileSlot.modelData.glyph
                                         color: tileSlot.modelData.tone
                                         font.family: root.mono
-                                        font.pixelSize: 20
+                                        font.pixelSize: quickGrid.colMode ? 14 : 20
                                     }
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
@@ -976,11 +980,18 @@ Item {
                                         text: tileSlot.modelData.label
                                         color: root.ink
                                         font.family: root.mono
-                                        font.pixelSize: 9
-                                        font.letterSpacing: 1.4
+                                        font.pixelSize: quickGrid.colMode ? 7 : 9
+                                        font.letterSpacing: quickGrid.colMode ? 0.8 : 1.4
                                         font.weight: Font.Medium
                                     }
+                                    // Sub-label is redundant in colMode —
+                                    // the detail panel header above shows
+                                    // the same live value. Hiding it lets
+                                    // the column fit all 12 tiles inside
+                                    // the card's vertical budget.
                                     Text {
+                                        visible: !quickGrid.colMode
+                                        height: visible ? implicitHeight : 0
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         width: parent.width
                                         horizontalAlignment: Text.AlignHCenter
@@ -1018,8 +1029,9 @@ Item {
                     }
                 }
 
-                // Vertical separator between the tile grid and the
-                // expanded detail panel.
+                // Vertical separator between the compressed tile column
+                // (left) and the detail panel (right). Anchored to the
+                // grid's right edge so it tracks the column's width.
                 Rectangle {
                     id: quickMidSep
                     visible: root.quickMode && root.expandedTile !== null
