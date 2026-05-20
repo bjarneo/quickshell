@@ -600,6 +600,15 @@ Item {
             }
         }
 
+        // Backdrop dim — fades the desktop behind the palette along the
+        // same reveal curve as the card scale, so open/close stays one
+        // motion. Drawn before the dismiss MouseArea so clicks still
+        // reach the close handler.
+        Rectangle {
+            anchors.fill: parent
+            color: Qt.rgba(0, 0, 0, 0.5 * panel.reveal)
+        }
+
         // Outside-click dismiss.
         MouseArea {
             anchors.fill: parent
