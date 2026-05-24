@@ -86,6 +86,10 @@ Item {
     // to nav telemetry for instantaneous state; clicking one drops an
     // expanded detail panel below the grid with that tile's adjustments.
     readonly property bool quickMode: root.categoryFilter === "Quick"
+    // Query-shape mode: `$ rg` pivots to an inline tldr preview. Lives
+    // alongside the category drills but triggers off the query itself,
+    // so the user can pivot in from any drill without going to root.
+    readonly property bool tldrMode: root.query.charAt(0) === "$"
     // null = no expansion; otherwise the tile object whose detail panel
     // is currently revealed under the grid.
     property var expandedTile: null
@@ -264,7 +268,7 @@ Item {
     GhSearch {
         id: ghSearch
         query: root.query
-        active: root.ghMode
+        active: root.ghMode && !root.tldrMode
         selectedItem: root.filteredItems[root.selectedIndex] || null
     }
     readonly property alias ghReady:        ghSearch.ready
@@ -289,7 +293,7 @@ Item {
         id: fileSearch
         query: root.query
         queryTokens: root.queryTokens
-        active: root.fileMode
+        active: root.fileMode && !root.tldrMode
         selectedItem: root.filteredItems[root.selectedIndex] || null
     }
     readonly property alias fileItems:    fileSearch.items
@@ -316,8 +320,20 @@ Item {
     readonly property alias themeItems:   themes.items
     readonly property alias themeLoaded:  themes.loaded
 
-    readonly property bool previewActive: root.fileMode || root.ghMode || root.procMode || root.themeMode
+    // tldr-backed CLI help preview. Triggered by `$ <name>` in the query.
+    TldrSearch {
+        id: tldrSearch
+        query: root.query
+        active: root.tldrMode
+    }
+    readonly property alias tldrItems:    tldrSearch.items
+    readonly property alias tldrRunning:  tldrSearch.running
+    readonly property alias tldrPreview:  tldrSearch.previewText
+    readonly property alias tldrTool:     tldrSearch.toolName
+
+    readonly property bool previewActive: root.tldrMode || root.fileMode || root.ghMode || root.procMode || root.themeMode
     readonly property bool previewHasContent: {
+        if (root.tldrMode) return root.tldrPreview !== "";
         if (root.fileMode || root.ghMode)
             return root.previewPath !== "" || root.previewRepoUrl !== "";
         if (root.procMode) return processes.previewPid !== "";
@@ -356,11 +372,101 @@ Item {
     onCategoryFilterChanged: {
         fileSearch.clear();
         ghSearch.clear();
+        tldrSearch.clear();
         // Processes/Themes own their own clear()-on-deactivate via their
         // `active` binding, so the shell doesn't have to nudge them when
         // the filter changes — they react automatically.
     }
 
+
+    // ---------- tldr markdown styling ----------
+    // Parses the small markdown dialect tldr emits with `-m` and
+    // returns RichText HTML coloured against the live palette. Bound
+    // (not memoised) so a theme swap repaints automatically. Patterns:
+    //   `# name`      title — skipped (header shows the tool name)
+    //   `> text`      description (ink), inline `code` in indigo
+    //   `- text:`     example label (inkDeep), inline `code` in indigo
+    //   `` `cmd` ``   example command (indigo); {{placeholders}} seal
+    //   other        fallthrough (e.g. "documentation not available")
+    function formatTldrHtml(raw) {
+        if (!raw) return "";
+        // Qt color.toString() returns `#AARRGGBB` for non-opaque
+        // colors (alpha first), which Qt's RichText parser
+        // misinterprets as `#RRGGBB` for the first six digits. Trim
+        // to `#RRGGBB` so translucent palette entries still render
+        // their nominal hue, even if alpha is dropped.
+        function hex(c) {
+            const s = c.toString();
+            return s.length === 9 ? "#" + s.substring(3) : s;
+        }
+        const ink = hex(root.ink);
+        const inkDeep = hex(root.inkDeep);
+        const indigo = hex(root.indigo);
+        const seal = hex(root.seal);
+
+        function esc(s) {
+            return s.replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;");
+        }
+        function wrap(color, text) {
+            return '<span style="color:' + color + '">' + esc(text) + '</span>';
+        }
+        // Inline `code` spans inside prose: split on backticks so the
+        // intervening code segments switch to indigo without changing
+        // the surrounding base colour.
+        function styleProse(s, base) {
+            let out = "", i = 0;
+            while (i < s.length) {
+                const j = s.indexOf("`", i);
+                if (j < 0) { out += wrap(base, s.substring(i)); break; }
+                if (j > i) out += wrap(base, s.substring(i, j));
+                const k = s.indexOf("`", j + 1);
+                if (k < 0) { out += wrap(base, s.substring(j)); break; }
+                out += wrap(indigo, s.substring(j + 1, k));
+                i = k + 1;
+            }
+            return out;
+        }
+        // Code lines: most of the string is indigo, {{placeholders}}
+        // pop in seal so the user sees what they need to fill in.
+        function styleCode(s) {
+            let out = "", i = 0;
+            while (i < s.length) {
+                const j = s.indexOf("{{", i);
+                if (j < 0) { out += wrap(indigo, s.substring(i)); break; }
+                if (j > i) out += wrap(indigo, s.substring(i, j));
+                const k = s.indexOf("}}", j + 2);
+                if (k < 0) { out += wrap(indigo, s.substring(j)); break; }
+                out += wrap(seal, s.substring(j + 2, k));
+                i = k + 2;
+            }
+            return out;
+        }
+
+        const lines = raw.split("\n");
+        const out = [];
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.length === 0) { out.push(""); continue; }
+            const c = line.charAt(0);
+            if (c === "#") continue;
+            if (c === ">") { out.push(styleProse(line.substring(1).trim(), ink)); continue; }
+            // Require a space after `-` so markdown rules (`---`) and
+            // any future hyphen-led prose don't get parsed as a tldr
+            // example label (which is always `- text:`).
+            if (c === "-" && line.charAt(1) === " ") { out.push(styleProse(line.substring(1).trim(), inkDeep)); continue; }
+            if (c === "`") {
+                let body = line;
+                if (body.charAt(0) === "`") body = body.substring(1);
+                if (body.charAt(body.length - 1) === "`") body = body.substring(0, body.length - 1);
+                out.push(styleCode(body));
+                continue;
+            }
+            out.push(styleProse(line, inkDeep));
+        }
+        return out.join("<br>");
+    }
 
     // ---------- Icon resolution ----------
     // `.desktop` Icon field is either an absolute path or an icon-theme
@@ -419,6 +525,26 @@ Item {
             root.close();
             return;
         }
+        // tldr → open a floating terminal with the user's typed text
+        // pre-filled at the readline prompt, ready to edit and run.
+        // Builds runner.command as argv (no shell-quoting layer) so
+        // backticks / $vars / metachars in the query land as literal
+        // text in $1 inside the inner bash, never as code. Bypasses
+        // bookmarks.record() — tldr lookups aren't apps and shouldn't
+        // pollute history or favourites.
+        if (item.isTldr) {
+            runner.command = ["setsid", "-f", "uwsm-app", "--",
+                "xdg-terminal-exec",
+                "--app-id=org.omarchy.terminal",
+                "--title=Omarchy",
+                "-e", "bash", "-c",
+                "read -e -i \"$1 \" line; eval \"$line\"; exec bash",
+                "_", item.tldrPreFill || item.tldrName || ""];
+            runner.running = false;
+            runner.running = true;
+            root.close();
+            return;
+        }
         bookmarks.record(item);
         // TUI commands need a real terminal — fzf, sudo prompts, and bash
         // `read` fail when launched detached. `item.tui` holds the wrapper
@@ -470,6 +596,9 @@ Item {
         : root.nav.filter(it => it.target !== Data.ghCategory)
 
     readonly property var filteredItems: {
+        // tldr mode owns the query entirely — its synthetic row is the
+        // only thing the list should show, scoring doesn't apply.
+        if (root.tldrMode) return root.tldrItems;
         // File and GitHub modes are their own worlds: fd and gh already
         // did the filtering, so we just pass their results through.
         if (root.fileMode) return root.fileItems;
@@ -725,6 +854,31 @@ Item {
                                || (e2.key === Qt.Key_Tab && (e2.modifiers & Qt.ShiftModifier)))) {
                     root.moveQuickSelection(-1);
                     event.accepted = true;
+                } else if (root.tldrMode && root.tldrPreview !== ""
+                           && (e2.key === Qt.Key_Up || e2.key === Qt.Key_Down
+                               || e2.key === Qt.Key_PageUp || e2.key === Qt.Key_PageDown
+                               || e2.key === Qt.Key_Home || e2.key === Qt.Key_End
+                               || e2.key === Qt.Key_Tab || e2.key === Qt.Key_Backtab)) {
+                    // tldr mode has a single synthetic row, so list nav is
+                    // a no-op. Route arrow/page/home/end (and Tab/Shift+Tab,
+                    // which would otherwise wrap the same row to itself) to
+                    // the preview Flickable instead.
+                    const f = tldrPreviewScroll;
+                    const max = Math.max(0, f.contentHeight - f.height);
+                    const line = 18;
+                    const page = Math.max(line, f.height * 0.9);
+                    let dy = 0;
+                    if (e2.key === Qt.Key_Up
+                        || (e2.key === Qt.Key_Tab && (e2.modifiers & Qt.ShiftModifier))
+                        || e2.key === Qt.Key_Backtab) dy = -line;
+                    else if (e2.key === Qt.Key_Down
+                             || (e2.key === Qt.Key_Tab && !(e2.modifiers & Qt.ShiftModifier))) dy = line;
+                    else if (e2.key === Qt.Key_PageUp)   dy = -page;
+                    else if (e2.key === Qt.Key_PageDown) dy = page;
+                    else if (e2.key === Qt.Key_Home) { f.contentY = 0; event.accepted = true; return; }
+                    else if (e2.key === Qt.Key_End)  { f.contentY = max; event.accepted = true; return; }
+                    f.contentY = Math.max(0, Math.min(max, f.contentY + dy));
+                    event.accepted = true;
                 } else if (e2.key === Qt.Key_Down
                            || (e2.key === Qt.Key_Tab && !(e2.modifiers & Qt.ShiftModifier))) {
                     // Tab + Down step forward, Shift+Tab + Up step backward,
@@ -769,7 +923,21 @@ Item {
                     event.accepted = true;
                 } else if (e2.key === Qt.Key_S && (e2.modifiers & Qt.ControlModifier)) {
                     const it = root.filteredItems[root.selectedIndex];
-                    if (it && !it.isCategory) bookmarks.toggleFavourite(it);
+                    if (it && !it.isCategory && !it.isTldr) bookmarks.toggleFavourite(it);
+                    event.accepted = true;
+                } else if (e2.key === Qt.Key_C && (e2.modifiers & Qt.ControlModifier)
+                           && root.tldrMode && root.tldrPreview !== "") {
+                    // Ctrl+C in tldr mode: copy the active selection if
+                    // there is one, otherwise copy the whole rendered
+                    // preview. The TextEdit's `copy()` works without
+                    // active focus, so the search input keeps keystrokes.
+                    if (tldrPreviewEdit.selectedText.length > 0) {
+                        tldrPreviewEdit.copy();
+                    } else {
+                        tldrPreviewEdit.selectAll();
+                        tldrPreviewEdit.copy();
+                        tldrPreviewEdit.deselect();
+                    }
                     event.accepted = true;
                 } else if (!root.quickMode && event.text && event.text.length === 1) {
                     const ch = event.text;
@@ -1500,6 +1668,11 @@ Item {
                             anchors.centerIn: parent
                             visible: resultList.count === 0
                             text: {
+                                if (root.tldrMode) {
+                                    if (root.tldrTool.length === 0) return "$ COMMAND  ·  TLDR PREVIEW";
+                                    if (root.tldrRunning) return "FETCHING TLDR…";
+                                    return "NO TLDR PAGE";
+                                }
                                 if (root.fileMode) {
                                     if (root.query.length === 0) return "TYPE TO SEARCH ~";
                                     if (root.fdRunning) return "SEARCHING…";
@@ -1552,6 +1725,7 @@ Item {
                             anchors.right: parent.right
                             text: {
                                 const it = root.filteredItems[root.selectedIndex];
+                                if (root.tldrMode) return root.tldrTool;
                                 if (root.ghMode) return root.previewRepo;
                                 if (root.procMode) return it ? it.title : "";
                                 if (root.themeMode) return it ? it.title : "";
@@ -1574,6 +1748,9 @@ Item {
                             anchors.right: parent.right
                             text: {
                                 const it = root.filteredItems[root.selectedIndex];
+                                if (root.tldrMode) return root.tldrTool.length === 0
+                                    ? "type a command name after $"
+                                    : "tldr  ·  ↵ opens terminal with command ready";
                                 if (root.ghMode) return root.previewRepoUrl;
                                 if (root.procMode) return it ? ("pid " + (it.pid || "") + "  ·  ↵ kills (SIGTERM)") : "";
                                 if (root.themeMode) return it
@@ -1612,6 +1789,10 @@ Item {
                                 anchors.centerIn: parent
                                 visible: !root.previewHasContent
                                 text: {
+                                    if (root.tldrMode) {
+                                        if (root.tldrTool.length === 0) return "TYPE A COMMAND";
+                                        return root.tldrRunning ? "FETCHING…" : "NO TLDR PAGE";
+                                    }
                                     if (root.ghMode)    return "SELECT A REPO";
                                     if (root.procMode)  return "SELECT A PROCESS";
                                     if (root.themeMode) return "SELECT A THEME";
@@ -1665,6 +1846,69 @@ Item {
                                 lineHeight: 1.4
                                 wrapMode: Text.WordWrap
                                 textFormat: Text.PlainText
+                            }
+
+                            // Wheel-scrollable preview. `interactive: false`
+                            // disables Flickable's own drag-to-scroll so the
+                            // inner TextEdit's drag-to-select wins; wheel
+                            // events still scroll via Flickable's separate
+                            // wheel handling. contentY resets to 0 whenever
+                            // the tldr text changes so a fresh fetch always
+                            // starts at the top.
+                            Flickable {
+                                id: tldrPreviewScroll
+                                anchors.fill: parent
+                                visible: root.tldrMode && root.tldrPreview !== ""
+                                contentWidth: width
+                                contentHeight: tldrPreviewEdit.implicitHeight
+                                clip: true
+                                interactive: false
+                                boundsBehavior: Flickable.StopAtBounds
+
+                                Connections {
+                                    target: root
+                                    function onTldrPreviewChanged() { tldrPreviewScroll.contentY = 0; }
+                                }
+
+                                // Mouse wheel scroll. Flickable's built-in
+                                // wheel handling is gated by `interactive`,
+                                // which we keep false so TextEdit can own
+                                // drag-to-select. A WheelHandler bypasses
+                                // that gate, scrolling contentY directly.
+                                WheelHandler {
+                                    onWheel: (event) => {
+                                        const f = tldrPreviewScroll;
+                                        const max = Math.max(0, f.contentHeight - f.height);
+                                        f.contentY = Math.max(0, Math.min(max,
+                                            f.contentY - event.angleDelta.y * 0.5));
+                                    }
+                                }
+
+                                // TextEdit (not Text) so the user can mouse-
+                                // drag to select and copy. activeFocusOnPress
+                                // false means clicking in the preview doesn't
+                                // steal keystrokes from the search input;
+                                // selection still tracks the mouse and Ctrl+C
+                                // at the root key handler copies via the
+                                // edit's copy() method. persistentSelection
+                                // keeps the highlight visible while focus
+                                // stays on the search input.
+                                TextEdit {
+                                    id: tldrPreviewEdit
+                                    width: tldrPreviewScroll.width
+                                    text: root.formatTldrHtml(root.tldrPreview)
+                                    color: root.ink
+                                    font.family: root.mono
+                                    font.pixelSize: 13
+                                    wrapMode: TextEdit.Wrap
+                                    textFormat: TextEdit.RichText
+                                    readOnly: true
+                                    selectByMouse: true
+                                    persistentSelection: true
+                                    activeFocusOnPress: false
+                                    selectionColor: root.indigo
+                                    selectedTextColor: root.paper
+                                }
                             }
 
                             Text {
