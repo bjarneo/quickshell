@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy to ~/.config/quickshell/gamehud/games.json and edit. Each entry is a JS regex tested against the focused window's class (not title). Use `hyprctl activewindow` to discover class names.",
+  "classes": [
+    "^steam_app_\\d+$",
+    "^gamescope$",
+    "^cs2$",
+    "^dota2$",
+    "^factorio$",
+    "^Minecraft.*",
+    "^osu!$",
+    "\\.exe$"
+  ]
+}
