@@ -17,7 +17,7 @@ import Quickshell.Io
 // curl subprocess; once running flips back to false the answer is done.
 //
 // RAM: clear() invokes unloadIfUsed() to release the resident model
-// weights (~2 GB for qwen2.5-coder:3b) right after the user leaves
+// weights (~1 GB for qwen3.5:0.8b) right after the user leaves
 // chat mode. The `_usedThisSession` flag guards against unloading a
 // model the user warmed via some other tool before opening the
 // palette. The ollama daemon itself stays running - we manage only
@@ -36,7 +36,7 @@ Item {
     readonly property bool running: chatProc.running
 
     property int _gen: 0
-    readonly property string model_: "qwen2.5-coder:3b"
+    readonly property string model_: "qwen3.5:0.8b"
 
     // Tracks whether THIS session actually invoked inference (vs. just
     // probed the daemon). Without it, leaving the palette while ollama
@@ -51,7 +51,7 @@ Item {
     signal promptSubmitted()
     // Steers the model toward devrel-style answers: lead with the
     // command, use fenced code blocks, no marketing fluff or preamble.
-    // Aggressive and concrete because 3B models follow specific
+    // Aggressive and concrete because small models follow specific
     // directives better than abstract ones like "be brief".
     readonly property string systemPrompt:
           "You are a terse Linux and CLI assistant for an Arch / Hyprland user. "
@@ -127,11 +127,19 @@ Item {
         chatProc.gen = ollamaChat._gen;
         // argv-style — the prompt rides inside JSON.stringify'd body so
         // no shell parsing touches its contents.
+        //
+        // think:false disables Qwen3-family thinking mode. With it on,
+        // tokens stream into a separate `thinking` field while
+        // `response` stays empty until the model finishes planning,
+        // which looks like a frozen panel for the first few seconds.
+        // Our devrel-style system prompt already rules out chain-of-
+        // thought output anyway. Ignored by non-thinking models.
         const body = JSON.stringify({
             model: ollamaChat.model_,
             prompt: ollamaChat.prompt,
             system: ollamaChat.systemPrompt,
-            stream: true
+            stream: true,
+            think: false
         });
         chatProc.command = ["curl", "-sN",
             "http://localhost:11434/api/generate",
@@ -186,7 +194,7 @@ Item {
         // Model name is passed positionally as $1 so shell
         // metacharacters / regex characters in it can never
         // re-interpret the command. grep -F treats the pattern as a
-        // fixed string (so `.` and `:` in `qwen2.5-coder:3b` aren't
+        // fixed string (so `.` and `:` in `qwen3.5:0.8b` aren't
         // regex metachars), and `--` separates the flag block from
         // the pattern. Substring match against /api/tags is still
         // technically loose but the model id is distinctive enough

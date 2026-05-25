@@ -93,7 +93,7 @@ The first character of the query can pivot the whole pane:
 | Prefix | Mode |
 | --- | --- |
 | `$ <cmd>` | tldr lookup. Renders the tldr page inline in a preview pane, palette-tinted. Enter opens a floating terminal with the command pre-filled at a readline prompt. |
-| `? <question>` | Local Ollama chat. Streams against `qwen2.5-coder:3b` (no network). First Enter probes the daemon; if Ollama isn't installed / running / the model isn't pulled, the preview shows what to do and Enter runs the right setup step in a terminal. |
+| `? <question>` | Local Ollama chat. Streams against `qwen3.5:0.8b` (no network). First Enter probes the daemon; if Ollama isn't installed / running / the model isn't pulled, the preview shows what to do and Enter runs the right setup step in a terminal. |
 
 ### Quick mode
 

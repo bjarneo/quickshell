@@ -63,7 +63,7 @@ Item {
                 if (o.chatStatus === "")    return "probing local ollama…";
                 if (o.chatStatus === "no-ollama") return "install ollama first";
                 if (o.chatStatus === "no-daemon") return "↵ to start the ollama daemon";
-                if (o.chatStatus === "no-model")  return "↵ to pull " + o.chatModel + " (~2 GB)";
+                if (o.chatStatus === "no-model")  return "↵ to pull " + o.chatModel + " (~1 GB)";
                 if (!o.chatSubmitted)        return "↵ to ask  ·  local, offline";
                 if (o.chatRunning)           return "streaming  ·  edit to ask again";
                 return "↵ done  ·  edit prompt and ↵ to ask again";
@@ -317,7 +317,7 @@ Item {
                           + "You can close the terminal once you see the daemon is up.", pal, o.inkDeep);
                     if (o.chatStatus === "no-model")
                         return Fmt.formatChatHtml(
-                            "Model `" + o.chatModel + "` is not pulled yet (~2 GB).\n\n"
+                            "Model `" + o.chatModel + "` is not pulled yet (~1 GB).\n\n"
                           + "Press Enter to fetch it. This is a one-time download; "
                           + "the weights live at `~/.ollama/models/`.", pal, o.inkDeep);
                     return Fmt.formatChatHtml(o.chatPreview, pal, null);

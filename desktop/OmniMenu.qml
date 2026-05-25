@@ -103,7 +103,7 @@ Item {
     // so the user can pivot in from any drill without going to root.
     readonly property bool tldrMode: root.query.charAt(0) === "$"
     // Sibling query-shape mode: `? <question>` pivots to a local
-    // Ollama chat preview against qwen2.5-coder:3b.
+    // Ollama chat preview against qwen3.5:0.8b.
     readonly property bool chatMode: root.query.charAt(0) === "?"
     // Live font multiplier — every `font.pixelSize` binding in this
     // file multiplies its base by this value. Ctrl++ / Ctrl+- nudge
@@ -411,7 +411,7 @@ Item {
         //   no-ollama  no-op (user installs themselves; we don't run a
         //              package manager unprompted)
         //   no-daemon  start the daemon in a floating terminal
-        //   no-model   pull qwen2.5-coder:3b in a floating terminal
+        //   no-model   pull qwen3.5:0.8b in a floating terminal
         //   ok+!sub    submit the prompt; preview streams inline,
         //              panel stays open
         //   ok+sub     no-op; user can edit and resubmit, or Esc out
@@ -439,11 +439,20 @@ Item {
                 return;
             }
             if (status === "no-model") {
+                // Pull the model in a held-open terminal. The model id
+                // is passed positionally as $1 so shell metacharacters
+                // in it can never re-interpret the script (same
+                // hardening as the probe in OllamaChat.qml). `exec bash`
+                // at the end keeps the window up so the user can read
+                // the pull output (and any errors) before closing.
                 runner.command = ["setsid", "-f", "uwsm-app", "--",
                     "xdg-terminal-exec",
                     "--app-id=org.omarchy.terminal",
                     "--title=Omarchy",
-                    "-e", "ollama", "pull", ollamaChat.model_];
+                    "-e", "bash", "-c",
+                    "ollama pull \"$1\"; "
+                    + "echo; echo '[done — close to return]'; exec bash",
+                    "--", ollamaChat.model_];
                 runner.running = false;
                 runner.running = true;
                 root.close();
