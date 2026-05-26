@@ -278,6 +278,8 @@ Item {
     readonly property alias chatPrompt:    ollamaChat.prompt
     readonly property alias chatSubmitted: ollamaChat.submitted
     readonly property alias chatModel:     ollamaChat.model_
+    readonly property alias chatActionLabel:   ollamaChat.actionLabel
+    readonly property alias chatActionCommand: ollamaChat.actionCommand
 
     readonly property bool previewActive: root.tldrMode || root.chatMode || root.fileMode || root.ghMode || root.procMode || root.themeMode
     readonly property bool previewHasContent: {
@@ -376,6 +378,10 @@ Item {
     //                      ||, &&, redirects) work alongside plain
     //                      argv-style commands without a special case
     Process { id: runner; running: false }
+    function openChatReview() {
+        return ollamaChat.runAction();
+    }
+
     function activate(item) {
         if (!item) return;
         if (item.isCategory) {
@@ -387,6 +393,10 @@ Item {
         // Process kill — refresh stays in-mode so you can chain kills.
         if (item.isProcess) {
             processes.killPid(item.pid, false);
+            return;
+        }
+        if (item.isOllamaAction) {
+            root.openChatReview();
             return;
         }
         // Theme apply — fire and forget; omarchy-theme-set rebuilds
@@ -427,7 +437,7 @@ Item {
                     "xdg-terminal-exec",
                     "--app-id=org.omarchy.terminal",
                     "--title=Omarchy",
-                    "-e", "bash", "-c",
+                    "bash", "-c",
                     "echo 'Starting ollama daemon...'; "
                     + "systemctl --user start ollama 2>/dev/null "
                     + "|| sudo systemctl start ollama 2>/dev/null "
@@ -449,7 +459,7 @@ Item {
                     "xdg-terminal-exec",
                     "--app-id=org.omarchy.terminal",
                     "--title=Omarchy",
-                    "-e", "bash", "-c",
+                    "bash", "-c",
                     "ollama pull \"$1\"; "
                     + "echo; echo '[done — close to return]'; exec bash",
                     "--", ollamaChat.model_];
@@ -463,6 +473,9 @@ Item {
                 // Keep the panel open so the response streams in.
                 return;
             }
+            if (status === "ok" && ollamaChat.submitted && root.openChatReview()) {
+                return;
+            }
             // status === "ok" && submitted: stay open, no-op. User
             // can edit the prompt and the new submit fires on Enter.
             return;
@@ -472,7 +485,7 @@ Item {
                 "xdg-terminal-exec",
                 "--app-id=org.omarchy.terminal",
                 "--title=Omarchy",
-                "-e", "bash", "-c",
+                "bash", "-c",
                 "read -e -i \"$1 \" line; eval \"$line\"; exec bash",
                 "_", item.tldrPreFill || item.tldrName || ""];
             runner.running = false;
@@ -793,12 +806,15 @@ Item {
                     root.moveQuickSelection(-1);
                     event.accepted = true;
                 } else if (root.chatMode && root.previewHasContent
+                           && root.filteredItems.length <= 1
                            && (e2.key === Qt.Key_Up || e2.key === Qt.Key_Down
                                || e2.key === Qt.Key_PageUp || e2.key === Qt.Key_PageDown
                                || e2.key === Qt.Key_Home || e2.key === Qt.Key_End
                                || e2.key === Qt.Key_Tab || e2.key === Qt.Key_Backtab)) {
                     // chat mode: same scroll routing as tldr mode below.
-                    // List nav is a no-op here (single synthetic row).
+                    // List nav is a no-op while chat has only the LLM row.
+                    // Once a review action row appears, arrows/Tab must move
+                    // selection so the user can open it like any other row.
                     const f = previewPaneInstance.chatFlickable;
                     const max = Math.max(0, f.contentHeight - f.height);
                     const line = 18;
@@ -867,7 +883,9 @@ Item {
                     resultListInstance.list.positionViewAtIndex(root.selectedIndex, ListView.End);
                     event.accepted = true;
                 } else if (e2.key === Qt.Key_Return || e2.key === Qt.Key_Enter) {
-                    if (root.quickMode) {
+                    if (root.chatMode && root.chatSubmitted && root.chatActionCommand !== "") {
+                        root.openChatReview();
+                    } else if (root.quickMode) {
                         const t = root.filteredQuickTiles[root.selectedIndex];
                         if (t) root.expandTile(t);
                     } else {

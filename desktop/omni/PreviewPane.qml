@@ -65,7 +65,8 @@ Item {
                 if (o.chatStatus === "no-daemon") return "↵ to start the ollama daemon";
                 if (o.chatStatus === "no-model")  return "↵ to pull " + o.chatModel + " (~1 GB)";
                 if (!o.chatSubmitted)        return "↵ to ask  ·  local, offline";
-                if (o.chatRunning)           return "streaming  ·  edit to ask again";
+                if (o.chatRunning)           return "working  ·  edit to ask again";
+                if (o.chatActionCommand !== "") return "↵ runs fixed action  ·  action ready";
                 return "↵ done  ·  edit prompt and ↵ to ask again";
             }
             if (o.ghMode) return o.previewRepoUrl;
@@ -115,7 +116,7 @@ Item {
                     if (o.chatPrompt.length === 0) return "TYPE A QUESTION";
                     if (o.chatStatus === "") return "CHECKING…";
                     if (!o.chatSubmitted) return "PRESS ENTER TO ASK";
-                    return o.chatRunning ? "STREAMING…" : "DONE";
+                    return o.chatRunning ? "WORKING…" : "DONE";
                 }
                 if (o.ghMode)    return "SELECT A REPO";
                 if (o.procMode)  return "SELECT A PROCESS";

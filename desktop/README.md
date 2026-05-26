@@ -93,7 +93,7 @@ The first character of the query can pivot the whole pane:
 | Prefix | Mode |
 | --- | --- |
 | `$ <cmd>` | tldr lookup. Renders the tldr page inline in a preview pane, palette-tinted. Enter opens a floating terminal with the command pre-filled at a readline prompt. |
-| `? <question>` | Local Ollama chat. Streams against `qwen3.5:0.8b` (no network). First Enter probes the daemon; if Ollama isn't installed / running / the model isn't pulled, the preview shows what to do and Enter runs the right setup step in a terminal. |
+| `? <question>` | Local Ollama chat. Streams against `qwen3.5:0.8b` (no network). First Enter probes the daemon; if Ollama isn't installed / running / the model isn't pulled, the preview shows what to do and Enter runs the right setup step in a terminal. A fixed Omarchy-native intent library maps 100+ common assistant requests to read-only local tools for Omarchy commands, Quickshell/Omni state, Hyprland windows/workspaces/monitors, themes/Aether, screenshots/recordings, Waybar/bar state, system resources, storage, processes, services, network, packages, logs, recent files, and Downloads. Mutating helpers, such as Downloads organization, run only as fixed reviewed actions after the answer. |
 
 ### Quick mode
 
